@@ -15,7 +15,7 @@ class ExtensionStartsTest {
     @RegisterExtension
     static final QuarkusExtensionTest TEST = new QuarkusExtensionTest()
             .withEmptyApplication()
-            .overrideConfigKey("quarkus.libvips.required", "false") // ignored until the runtime config defines it
+            .overrideConfigKey("quarkus.libvips.required", "false")
             .setLogRecordPredicate(r -> r.getMessage() != null && r.getMessage().contains("Installed features"))
             .assertLogRecords(records -> assertThat(records)
                     .anySatisfy(r -> assertThat(r.getParameters()).anySatisfy(

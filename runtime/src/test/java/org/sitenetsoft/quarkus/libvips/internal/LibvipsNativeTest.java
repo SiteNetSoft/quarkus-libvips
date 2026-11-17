@@ -130,6 +130,13 @@ class LibvipsNativeTest {
         long ppm = LibvipsNative.typeFind("VipsOperation", "ppmload");
         assertThat(LibvipsNative.typeName(ppm)).isEqualTo("VipsForeignLoadPpmFile");
         assertThat(LibvipsNative.typeName(0)).isNull();
+        long operation = LibvipsNative.operationType();
+        assertThat(LibvipsNative.typeName(operation)).isEqualTo("VipsOperation");
+        long png = LibvipsNative.typeFromName("VipsForeignLoadPng"); // abstract: vips_type_find returns 0
+        assertThat(LibvipsNative.typeFind("VipsOperation", "VipsForeignLoadPng")).isZero();
+        assertThat(png).isNotZero();
+        assertThat(LibvipsNative.typeIsA(png, operation)).isTrue();
+        assertThat(LibvipsNative.typeFromName("pngload_buffer")).isZero(); // a nickname is not a type name
         try {
             LibvipsNative.blockUntrustedSet(true);
             LibvipsNative.operationBlockSet("VipsForeignLoadPpm", true);

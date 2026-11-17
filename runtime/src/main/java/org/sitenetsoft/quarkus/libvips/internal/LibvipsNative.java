@@ -103,6 +103,7 @@ public final class LibvipsNative {
         fixed(m, "vips_cache_set_max_mem", FunctionDescriptor.ofVoid(JAVA_LONG)); // size_t
         fixed(m, "vips_cache_set_max_files", FunctionDescriptor.ofVoid(JAVA_INT));
         fixed(m, "vips_cache_get_max", FunctionDescriptor.of(JAVA_INT));
+        fixed(m, "vips_cache_get_size", FunctionDescriptor.of(JAVA_INT));
         fixed(m, "vips_cache_get_max_mem", FunctionDescriptor.of(JAVA_LONG)); // size_t
         fixed(m, "vips_cache_get_max_files", FunctionDescriptor.of(JAVA_INT));
         fixed(m, "vips_block_untrusted_set", FunctionDescriptor.ofVoid(JAVA_INT)); // gboolean
@@ -119,6 +120,7 @@ public final class LibvipsNative {
         fixed(m, "g_type_name", FunctionDescriptor.of(ADDRESS, JAVA_LONG)); // const gchar * (GType)
         fixed(m, "g_type_fundamental", FunctionDescriptor.of(JAVA_LONG, JAVA_LONG)); // GType (GType)
         fixed(m, "g_type_is_a", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG)); // gboolean (GType, GType)
+        fixed(m, "g_type_from_name", FunctionDescriptor.of(JAVA_LONG, ADDRESS)); // GType (const gchar *)
         fixed(m, "g_value_init", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG)); // GValue *(GValue *, GType)
         fixed(m, "g_value_unset", FunctionDescriptor.ofVoid(ADDRESS));
         fixed(m, "g_value_set_int", FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT));
@@ -153,6 +155,7 @@ public final class LibvipsNative {
         fixed(m, "vips_enum_nick", FunctionDescriptor.of(ADDRESS, JAVA_LONG, JAVA_INT)); // const char * (GType, int)
         // object.h, operation.h, cache.h
         fixed(m, "vips_type_find", FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS)); // (basename, nickname)
+        fixed(m, "vips_operation_get_type", FunctionDescriptor.of(JAVA_LONG));
         fixed(m, "vips_operation_new", FunctionDescriptor.of(ADDRESS, ADDRESS));
         fixed(m, "vips_operation_get_flags", FunctionDescriptor.of(JAVA_INT, ADDRESS));
         fixed(m, "vips_cache_operation_build", FunctionDescriptor.of(ADDRESS, ADDRESS));
@@ -298,6 +301,11 @@ public final class LibvipsNative {
         return intResult("vips_cache_get_max");
     }
 
+    /** {@code vips_cache_get_size}: operations in the cache now. */
+    static int cacheGetSize() {
+        return intResult("vips_cache_get_size");
+    }
+
     static long cacheGetMaxMem() {
         return longResult("vips_cache_get_max_mem");
     }
@@ -388,13 +396,33 @@ public final class LibvipsNative {
         pointerArg("g_object_unref", obj);
     }
 
-    /** {@code vips_type_find}: the {@code GType} of a nickname or class name under {@code base}, 0 when unknown. */
+    /**
+     * {@code vips_type_find}: the {@code GType} of a nickname or concrete class name under {@code base}, 0 when unknown
+     * or abstract (no error text either way).
+     */
     static long typeFind(String base, String nickname) {
         try (Arena a = Arena.ofConfined()) {
             return (long) h("vips_type_find").invokeExact(a.allocateFrom(base), a.allocateFrom(nickname));
         } catch (Throwable t) {
             throw rethrow(t);
         }
+    }
+
+    /**
+     * {@code g_type_from_name}: the {@code GType} of a registered type name, 0 when unknown. Finds abstract classes such
+     * as {@code VipsForeignLoadHeif}, which {@link #typeFind} skips; a nickname is not a type name.
+     */
+    static long typeFromName(String name) {
+        try (Arena a = Arena.ofConfined()) {
+            return (long) h("g_type_from_name").invokeExact(a.allocateFrom(name));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /** {@code vips_operation_get_type}: the {@code GType} of {@code VipsOperation}. */
+    static long operationType() {
+        return longResult("vips_operation_get_type");
     }
 
     /** {@code g_type_name}, {@code null} for an invalid type. */

@@ -26,17 +26,18 @@ class DowncallsTest {
     static final Set<String> C_FUNCTIONS = Set.of(
             "vips_init", "vips_version", "vips_shutdown", "vips_cache_drop_all", "vips_concurrency_set",
             "vips_concurrency_get", "vips_cache_set_max", "vips_cache_set_max_mem", "vips_cache_set_max_files",
-            "vips_cache_get_max", "vips_cache_get_max_mem", "vips_cache_get_max_files", "vips_block_untrusted_set",
+            "vips_cache_get_max", "vips_cache_get_size", "vips_cache_get_max_mem", "vips_cache_get_max_files",
+            "vips_block_untrusted_set",
             "vips_operation_block_set", "vips_tracked_get_mem", "vips_error_buffer_copy", "vips_error_clear",
             "g_free", "g_strfreev", "g_object_ref", "g_object_unref", "g_type_name", "g_type_fundamental",
-            "g_type_is_a", "g_value_init", "g_value_unset", "g_value_set_int", "g_value_set_double",
+            "g_type_is_a", "g_type_from_name", "g_value_init", "g_value_unset", "g_value_set_int", "g_value_set_double",
             "g_value_set_boolean", "g_value_set_enum", "g_value_set_flags", "g_value_set_string",
             "g_value_set_object", "g_value_set_boxed", "g_value_get_int", "g_value_get_double",
             "g_value_get_boolean", "g_value_get_object", "g_value_get_boxed", "g_object_set_property",
             "g_object_get_property", "g_param_spec_get_default_value", "vips_image_get_type",
             "vips_blob_get_type", "vips_array_double_get_type", "vips_interpretation_get_type", "vips_blob_copy",
             "vips_blob_get", "vips_area_unref", "vips_value_set_array_double", "vips_enum_from_nick",
-            "vips_flags_from_nick", "vips_enum_nick", "vips_type_find", "vips_operation_new",
+            "vips_flags_from_nick", "vips_enum_nick", "vips_type_find", "vips_operation_get_type", "vips_operation_new",
             "vips_operation_get_flags", "vips_cache_operation_build", "vips_object_unref_outputs",
             "vips_object_get_argument", "vips_object_get_argument_flags", "vips_image_get_width",
             "vips_image_get_height", "vips_image_get_bands", "vips_image_get_n_pages", "vips_image_get_page_height",
@@ -66,6 +67,7 @@ class DowncallsTest {
         m.put("vips_cache_set_max_mem", FunctionDescriptor.ofVoid(L)); // void (size_t)
         m.put("vips_cache_set_max_files", FunctionDescriptor.ofVoid(I)); // void (int)
         m.put("vips_cache_get_max", FunctionDescriptor.of(I)); // int (void)
+        m.put("vips_cache_get_size", FunctionDescriptor.of(I)); // int (void)
         m.put("vips_cache_get_max_mem", FunctionDescriptor.of(L)); // size_t (void)
         m.put("vips_cache_get_max_files", FunctionDescriptor.of(I)); // int (void)
         m.put("vips_block_untrusted_set", FunctionDescriptor.ofVoid(I)); // void (gboolean)
@@ -80,6 +82,7 @@ class DowncallsTest {
         m.put("g_type_name", FunctionDescriptor.of(P, L)); // const gchar * (GType)
         m.put("g_type_fundamental", FunctionDescriptor.of(L, L)); // GType (GType)
         m.put("g_type_is_a", FunctionDescriptor.of(I, L, L)); // gboolean (GType, GType)
+        m.put("g_type_from_name", FunctionDescriptor.of(L, P)); // GType (const gchar *)
         m.put("g_value_init", FunctionDescriptor.of(P, P, L)); // GValue * (GValue *, GType)
         m.put("g_value_unset", FunctionDescriptor.ofVoid(P)); // void (GValue *)
         m.put("g_value_set_int", FunctionDescriptor.ofVoid(P, I)); // void (GValue *, gint)
@@ -110,6 +113,7 @@ class DowncallsTest {
         m.put("vips_flags_from_nick", FunctionDescriptor.of(I, P, L, P)); // int (const char *, GType, const char *)
         m.put("vips_enum_nick", FunctionDescriptor.of(P, L, I)); // const char * (GType, int)
         m.put("vips_type_find", FunctionDescriptor.of(L, P, P)); // GType (const char *, const char *)
+        m.put("vips_operation_get_type", FunctionDescriptor.of(L)); // GType (void)
         m.put("vips_operation_new", FunctionDescriptor.of(P, P)); // VipsOperation * (const char *)
         m.put("vips_operation_get_flags", FunctionDescriptor.of(I, P)); // VipsOperationFlags (VipsOperation *)
         m.put("vips_cache_operation_build", FunctionDescriptor.of(P, P)); // VipsOperation * (VipsOperation *)
@@ -140,7 +144,7 @@ class DowncallsTest {
 
     @Test
     void everyDescriptorMatchesTheHeaders() {
-        assertThat(EXPECTED).hasSize(78);
+        assertThat(EXPECTED).hasSize(81);
         assertThat(EXPECTED.keySet()).isEqualTo(C_FUNCTIONS);
         EXPECTED.forEach((symbol, fd) -> assertThat(LibvipsNative.DOWNCALLS.get(symbol).descriptor()).as(symbol)
                 .isEqualTo(fd));
@@ -148,7 +152,7 @@ class DowncallsTest {
 
     @Test
     void exactlyTheCApi() {
-        assertThat(C_FUNCTIONS).hasSize(78);
+        assertThat(C_FUNCTIONS).hasSize(81);
         assertThat(LibvipsNative.DOWNCALLS.keySet()).containsExactlyInAnyOrderElementsOf(C_FUNCTIONS);
         LibvipsNative.DOWNCALLS.forEach((k, d) -> assertThat(d.symbol()).isEqualTo(k));
     }

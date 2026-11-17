@@ -14,4 +14,11 @@ class LibvipsProcessorTest {
     void featureName() {
         assertThat(new LibvipsProcessor().feature().getName()).isEqualTo("libvips");
     }
+
+    @Test
+    void libvipsBeanIsUnremovable() {
+        var bean = new LibvipsProcessor().bean();
+        assertThat(bean.getBeanClasses()).containsExactly("org.sitenetsoft.quarkus.libvips.Libvips");
+        assertThat(bean.isRemovable()).isFalse();
+    }
 }
