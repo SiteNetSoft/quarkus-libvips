@@ -1,0 +1,17 @@
+portrait.jpg is a synthetic test image made for this project: 400x300 pixels, a horizontal colour gradient,
+EXIF Orientation 6 (rotate 90 degrees clockwise to display), and an embedded sRGB ICC v4 profile. The image is
+licensed Apache-2.0 like the repository. The embedded profile is colord's sRGB.icc (22944 bytes), which its own
+copyright tag declares free of known copyright restrictions, so it does not conflict with that licence.
+
+An equivalent file can be regenerated with the vips CLI (libvips 8.18) and exiftool; the profile path is the
+Debian/Ubuntu colord-data package's:
+
+  vips xyz xy.v 400 300 && vips extract_band xy.v x.v 0 && vips linear x.v r.v 0.6 0 --uchar \
+    && vips bandjoin_const r.v rgb.v "96 160" && vips copy rgb.v srgb.v --interpretation srgb \
+    && vips icc_transform srgb.v portrait.jpg[Q=85] /usr/share/color/icc/colord/sRGB.icc --embedded \
+    && exiftool -n -Orientation=6 -overwrite_original portrait.jpg
+  vipsheader -a portrait.jpg | grep -E '^(width|height|orientation|icc-profile-data):'
+
+The check prints width 400, height 300, orientation 6 and 22944 bytes of icc-profile-data. The regenerated file is
+not byte-identical (28170 bytes with libvips 8.18.7; the committed file is 28029 bytes); the tests use only the
+committed file.
