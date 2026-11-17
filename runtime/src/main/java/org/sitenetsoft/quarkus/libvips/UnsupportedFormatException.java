@@ -18,6 +18,9 @@ public class UnsupportedFormatException extends LibvipsException {
         NO_SAVER
     }
 
+    /** Added to every {@link Reason#NO_LOADER} message: a blocked format cannot be told from an unknown one. */
+    static final String BLOCKED_HINT = "(blocked loaders are not considered; see quarkus.libvips.security.*)";
+
     private final Reason reason;
 
     /**
@@ -32,7 +35,8 @@ public class UnsupportedFormatException extends LibvipsException {
 
     private static String message(String operation, String detail, Reason reason) {
         String what = reason == Reason.NO_LOADER ? "no loader accepts this input" : "no saver for this format";
-        return operation + ": " + what + (detail == null || detail.isBlank() ? "" : ": " + detail.strip());
+        return operation + ": " + what + (detail == null || detail.isBlank() ? "" : ": " + detail.strip())
+                + (reason == Reason.NO_LOADER ? " " + BLOCKED_HINT : "");
     }
 
     /** {@return why the format is unsupported} */

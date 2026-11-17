@@ -38,6 +38,9 @@ public final class VipsRuntime {
     static final String DEFAULT_CONCURRENCY_PROPERTY = "org.sitenetsoft.quarkus.libvips.default-concurrency";
 
     private static final String OPERATION = "VipsOperation";
+
+    /** The class of libvips's {@code system} operation, which runs a shell command. */
+    static final String SYSTEM = "VipsSystem";
     private static final Logger LOG = Logger.getLogger(VipsRuntime.class);
 
     /**
@@ -87,6 +90,10 @@ public final class VipsRuntime {
         }
         List<String> blocked = resolve(settings.blockedOperations(), "blocked-operations");
         List<String> allowed = resolve(settings.allowedOperations(), "allowed-operations");
+        if (allowed.contains(SYSTEM)) {
+            throw new IllegalArgumentException("quarkus.libvips.security.allowed-operations: system cannot be allowed"
+                    + " (it runs shell commands; it stays blocked)");
+        }
 
         // read on every start, configured or not: the first start in the process must record libvips's default
         // before anything changes it, so that a later start without quarkus.libvips.concurrency can restore it
@@ -99,6 +106,9 @@ public final class VipsRuntime {
         LibvipsNative.blockUntrustedSet(settings.blockUntrusted());
         blocked.forEach(name -> LibvipsNative.operationBlockSet(name, true));
         allowed.forEach(name -> LibvipsNative.operationBlockSet(name, false));
+        // libvips does not mark system untrusted, but it runs a shell command: blocked last, on every start, so no
+        // allowed entry (VipsOperation unblocks every subclass) and no earlier start can leave it runnable
+        LibvipsNative.operationBlockSet(SYSTEM, true);
         return new VipsRuntime(Optional.empty(), version, loaded.library(), settings);
     }
 
@@ -204,14 +214,21 @@ public final class VipsRuntime {
     }
 
     /**
-     * {@return whether the operation is blocked; false for an unknown nickname}
+     * {@return whether the operation is blocked; false for an unknown name}
      *
-     * @param operation an operation nickname, such as {@code pngload_buffer}
+     * @param operation an operation nickname, such as {@code pngload_buffer}, or a concrete class name
+     * @throws IllegalArgumentException when {@code operation} names an abstract operation class such as
+     *         {@code VipsForeignLoadPpm}: it has no flags of its own to read, so ask about a concrete variant
      */
     public boolean isBlocked(String operation) {
         enter();
         try {
             if (LibvipsNative.typeFind(OPERATION, operation) == 0) {
+                long type = LibvipsNative.typeFromName(operation);
+                if (type != 0 && LibvipsNative.typeIsA(type, LibvipsNative.operationType())) {
+                    throw new IllegalArgumentException(operation
+                            + " is an abstract operation class; ask about a concrete one, such as a nickname");
+                }
                 return false;
             }
             MemorySegment op = LibvipsNative.operationNew(operation);

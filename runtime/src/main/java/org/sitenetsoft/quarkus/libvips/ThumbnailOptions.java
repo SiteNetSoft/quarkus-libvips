@@ -15,8 +15,10 @@ import org.sitenetsoft.quarkus.libvips.internal.Operation;
  * @param size which way the image may be resized
  * @param crop what to keep when cropping to fill the box; {@link Interesting#NONE} to fit inside it
  * @param noRotate {@code true} to ignore the EXIF orientation instead of turning the image upright
- * @param outputProfile the ICC profile to convert to, a file name or a built-in name such as {@code srgb}; empty to
- *        keep the image's colour space. Name files only from trusted configuration: libvips reads the file.
+ * @param outputProfile the ICC profile to convert to: a built-in name ({@code srgb}, {@code sgrey}, {@code p3},
+ *        {@code cmyk}) or the absolute path of a regular file, else the thumbnail methods throw
+ *        {@link IllegalArgumentException}; empty to keep the image's colour space. Name files only from the
+ *        application's own configuration, never from request data: libvips reads the file.
  * @param intent the rendering intent of that conversion
  */
 public record ThumbnailOptions(OptionalInt height, Size size, Interesting crop, boolean noRotate,

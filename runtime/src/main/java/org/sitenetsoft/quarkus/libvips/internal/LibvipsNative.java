@@ -141,6 +141,7 @@ public final class LibvipsNative {
         fixed(m, "g_param_spec_get_default_value", FunctionDescriptor.of(ADDRESS, ADDRESS)); // const GValue *
         // gboolean (GParamSpec *, GValue *): TRUE when the value had to be changed to fit the GParamSpec
         fixed(m, "g_param_value_validate", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
+        fixed(m, "g_param_spec_get_name", FunctionDescriptor.of(ADDRESS, ADDRESS)); // const gchar * (GParamSpec *)
         // type.h, enumtypes.h, util.h
         fixed(m, "vips_image_get_type", FunctionDescriptor.of(JAVA_LONG));
         fixed(m, "vips_blob_get_type", FunctionDescriptor.of(JAVA_LONG));
@@ -469,7 +470,8 @@ public final class LibvipsNative {
     }
 
     /**
-     * The value type (from the {@code GParamSpec}'s default value) and flags of an argument of {@code object}.
+     * The canonical name ({@code g_param_spec_get_name}), value type (from the {@code GParamSpec}'s default value) and
+     * flags of an argument of {@code object}.
      *
      * @return empty when {@code vips_object_get_argument} fails; libvips then leaves text in the error buffer, which
      *         the caller clears
@@ -489,7 +491,8 @@ public final class LibvipsNative {
             MemorySegment value = (MemorySegment) h("g_param_spec_get_default_value").invokeExact(spec);
             long type = value.reinterpret(GVALUE.byteSize()).get(JAVA_LONG, 0);
             int flags = (int) h("vips_object_get_argument_flags").invokeExact(object, n);
-            return Optional.of(new ArgumentSpec(type, flags, spec));
+            String canonical = cstr((MemorySegment) h("g_param_spec_get_name").invokeExact(spec));
+            return Optional.of(new ArgumentSpec(canonical, type, flags, spec));
         } catch (Throwable t) {
             throw rethrow(t);
         }

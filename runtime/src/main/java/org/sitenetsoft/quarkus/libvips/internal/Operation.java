@@ -1,9 +1,16 @@
 package org.sitenetsoft.quarkus.libvips.internal;
 
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.sitenetsoft.quarkus.libvips.LibvipsException;
 import org.sitenetsoft.quarkus.libvips.VipsEnum;
@@ -21,6 +28,18 @@ import org.sitenetsoft.quarkus.libvips.VipsEnum;
  * nick (such as {@code "icc:exif"}); {@code VipsImage} a {@link NativeImage}; {@code VipsBlob} {@code byte[]}
  * (copied); {@code VipsArrayDouble} {@code double[]}.
  * <p>
+ * Arguments that libvips reads as file names ({@code input_profile}, {@code output_profile}, {@code export_profile},
+ * {@code import_profile}, {@code profile}, {@code fontfile}, {@code filename}; recognised by the name the argument's
+ * {@code GParamSpec} holds, whichever spelling GLib resolved to it) take a built-in profile name ({@code srgb},
+ * {@code sgrey}, {@code p3}, {@code cmyk}, {@code none}, any case) or the absolute path of an existing regular
+ * file; anything else is refused before libvips opens it. That keeps out FIFOs (opening one blocks the thread until a
+ * writer appears), devices (libvips sizes the read with {@code fstat}, so {@code /dev/zero} reads nothing and fails;
+ * they are never profiles), directories, and relative names (which libvips also looks up in its own ICC directory).
+ * It does not decide which regular files may be read: such a name must come from the application, never from request
+ * data.
+ * <p>
+ * {@code system}, {@code globalbalance} and {@code remosaic} are never created (see {@link #create}).
+ * <p>
  * References: {@link #build()} returns a {@link Built} that holds a new reference to the built operation (often a
  * different, cached object); this operation's own reference is dropped then, on success and on failure. An operation
  * never built drops its reference on {@link #close()}.
@@ -28,6 +47,26 @@ import org.sitenetsoft.quarkus.libvips.VipsEnum;
  * Callers bracket the whole sequence with {@link VipsRuntime#enter()} / {@link VipsRuntime#exit()}.
  */
 public final class Operation implements AutoCloseable {
+
+    /** Arguments libvips opens as files, by their canonical name (GLib also accepts {@code -} for {@code _}). */
+    private static final Set<String> FILE_ARGUMENTS = Set.of("input_profile", "output_profile", "export_profile",
+            "import_profile", "profile", "fontfile", "filename");
+
+    /**
+     * The shape of every libvips argument name: GLib's form, with {@code -} or {@code _}; upper case occurs (the
+     * savers' {@code Q}). It rules out GLib's {@code Type::name} lookup and anything a NUL would cut short.
+     */
+    private static final Pattern ARGUMENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]*");
+
+    /**
+     * Operations never created, by class (subclasses and nicknames included): {@code system} runs a shell command;
+     * {@code globalbalance} and {@code remosaic} (libvips 8.18) open files named in the image's history, with
+     * loader options, outside every limit here. A class this libvips lacks is skipped.
+     */
+    private static final List<String> DENIED = List.of("VipsSystem", "VipsGlobalbalance", "VipsRemosaic");
+
+    /** libvips's built-in profiles ({@code vips_profile_load}, compared ignoring case), and {@code none}. */
+    private static final Set<String> BUILT_IN_PROFILES = Set.of("none", "srgb", "sgrey", "p3", "cmyk");
 
     private final String nickname;
     private final MemorySegment op;
@@ -42,9 +81,17 @@ public final class Operation implements AutoCloseable {
      * {@return a new operation}
      *
      * @param nickname the operation's nickname (or class name)
+     * @throws IllegalArgumentException for {@code system}, {@code globalbalance} or {@code remosaic}, which run
+     *         external commands or open files named in image metadata
      * @throws LibvipsException when libvips has no such operation
      */
     public static Operation create(String nickname) {
+        for (String denied : DENIED) {
+            if (LibvipsNative.typeFind(denied, nickname) != 0) {
+                throw new IllegalArgumentException(nickname
+                        + " is not available: it runs external commands or opens files named in image metadata");
+            }
+        }
         MemorySegment op = LibvipsNative.operationNew(nickname);
         if (op.equals(MemorySegment.NULL)) {
             throw new LibvipsException(nickname, ErrorBuffer.take());
@@ -68,6 +115,7 @@ public final class Operation implements AutoCloseable {
      * @param name the argument name
      */
     public boolean has(String name) {
+        checkName(name);
         return spec(name).filter(Operation::isInput).isPresent();
     }
 
@@ -78,6 +126,9 @@ public final class Operation implements AutoCloseable {
      * @param names candidate argument names, in order of preference
      */
     public Optional<String> firstInput(String... names) {
+        for (String name : names) {
+            checkName(name);
+        }
         for (String name : names) {
             if (has(name)) {
                 return Optional.of(name);
@@ -92,6 +143,7 @@ public final class Operation implements AutoCloseable {
      * @param name the argument name, usually {@code out}
      */
     public boolean hasImageOutput(String name) {
+        checkName(name);
         return spec(name).filter(s -> (s.flags() & ArgumentSpec.OUTPUT) != 0 && s.valueType() != 0
                 && LibvipsNative.typeIsA(s.valueType(), LibvipsNative.imageType())).isPresent();
     }
@@ -103,6 +155,7 @@ public final class Operation implements AutoCloseable {
      * @param name the argument name
      */
     public OptionalInt intMaximum(String name) {
+        checkName(name);
         return spec(name).map(LibvipsNative::intMaximum).orElse(OptionalInt.empty());
     }
 
@@ -112,12 +165,45 @@ public final class Operation implements AutoCloseable {
      * @param name the argument name
      * @param value the value (see the class description for the accepted Java types)
      * @return this operation
-     * @throws IllegalArgumentException when the name is unknown; the argument is not an input, is deprecated or is
-     *         modified in place ({@code VIPS_ARGUMENT_MODIFY}, refused); the value does not fit its type; or the value
-     *         is outside the {@code GParamSpec}'s range ({@code g_param_value_validate})
+     * @throws IllegalArgumentException when the name is not shaped {@code [A-Za-z][A-Za-z0-9_-]*} or is unknown; the
+     *         argument is not an input, is deprecated or is modified in place ({@code VIPS_ARGUMENT_MODIFY},
+     *         refused); the value does not fit its type; the value is outside the {@code GParamSpec}'s range
+     *         ({@code g_param_value_validate}); or a file-name argument is neither a built-in profile name nor the
+     *         absolute path of a regular file
      * @throws IllegalStateException when the operation has been built or closed
      */
     public Operation set(String name, Object value) {
+        checkName(name);
+        return setWithoutNameCheck(name, value);
+    }
+
+    /**
+     * Refuses a name that is not shaped like a libvips argument name ({@code [A-Za-z][A-Za-z0-9_-]*}) before any
+     * native call. GLib also resolves {@code Type::name} and stops at a NUL; neither may pick an argument here.
+     */
+    private void checkName(String name) {
+        if (name == null || !ARGUMENT_NAME.matcher(name).matches()) {
+            String shown = name == null ? "null" : "\"" + printable(name) + "\"";
+            throw new IllegalArgumentException(
+                    nickname + ": " + shown + " is not a valid argument name ([A-Za-z][A-Za-z0-9_-]*)");
+        }
+    }
+
+    /** The name with control characters shown as {@code \\uXXXX}, at most 100 characters. */
+    private static String printable(String name) {
+        StringBuilder b = new StringBuilder();
+        name.chars().limit(100).forEach(c -> {
+            if (Character.isISOControl(c)) {
+                b.append(String.format("\\u%04x", c));
+            } else {
+                b.append((char) c);
+            }
+        });
+        return b.toString();
+    }
+
+    /** {@link #set} without the check of the name's shape: the rest, for tests of the later checks alone. */
+    Operation setWithoutNameCheck(String name, Object value) {
         if (built) {
             throw new IllegalStateException(nickname + " has been built");
         }
@@ -129,12 +215,36 @@ public final class Operation implements AutoCloseable {
         if (!isInput(spec)) {
             throw new IllegalArgumentException(nickname + ": " + name + " is not an input");
         }
+        // the GParamSpec's own name, not the caller's spelling: GLib resolves '-' for '_', "Type::name" and stops at
+        // a NUL, so only the name the argument really has decides whether libvips opens a file
+        String canonical = spec.name().replace('-', '_');
+        if (FILE_ARGUMENTS.contains(canonical) && value instanceof String file) {
+            checkFileArgument(canonical, file);
+        }
         try {
             setValue(spec, name, value);
         } catch (LibvipsNative.InvalidValueException e) {
             throw new IllegalArgumentException(nickname + ": " + name + " = " + show(value) + " is " + e.getMessage());
         }
         return this;
+    }
+
+    /** Refuses a file-name argument that is not a built-in profile name or an absolute regular file. */
+    private void checkFileArgument(String name, String value) {
+        if (BUILT_IN_PROFILES.contains(value.toLowerCase(Locale.ROOT))) {
+            return;
+        }
+        Path path;
+        try {
+            path = Path.of(value);
+        } catch (InvalidPathException e) {
+            path = null;
+        }
+        if (path == null || !path.isAbsolute() || !Files.isRegularFile(path)) {
+            throw new IllegalArgumentException(nickname + ": " + name + " = " + value.substring(0,
+                    Math.min(value.length(), 200)) + " is neither a built-in profile name (srgb, sgrey, p3, cmyk,"
+                    + " none) nor the absolute path of a regular file");
+        }
     }
 
     private void setValue(ArgumentSpec spec, String name, Object value) {

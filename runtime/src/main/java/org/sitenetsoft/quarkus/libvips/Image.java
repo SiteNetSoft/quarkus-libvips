@@ -75,9 +75,12 @@ public final class Image implements AutoCloseable {
      *        enums as {@link VipsEnum} or nick, flags as {@code Integer} or nick, {@code Image}, {@code byte[]},
      *        {@code double[]}
      * @return the operation's {@code out} image
-     * @throws IllegalArgumentException for a loader or saver (use {@link Libvips#load} instead), an operation with no
+     * @throws IllegalArgumentException for {@code system}, {@code globalbalance} or {@code remosaic} (they run
+     *         external commands or open files named in image metadata; never available), a loader or saver (use
+     *         {@link Libvips#load} instead), an operation with no
      *         image input or no image output {@code out}, or an argument that is unknown, not an input, deprecated,
-     *         modified in place, of the wrong type or outside its range
+     *         modified in place, of the wrong type or outside its range, or a file-name argument (such as
+     *         {@code output_profile}) that is neither a built-in profile name nor the absolute path of a regular file
      * @throws LibvipsException when libvips has no such operation or the operation fails
      * @throws IllegalStateException when this image or an argument image is closed
      */
@@ -199,7 +202,8 @@ public final class Image implements AutoCloseable {
      *        argument allows (10 000 000 on a default libvips build)
      * @param options height, size, crop, rotation, colour profile
      * @return the thumbnail, to close
-     * @throws IllegalArgumentException when {@code width} is out of range
+     * @throws IllegalArgumentException when {@code width} is out of range, or the output profile is neither a built-in
+     *         name nor the absolute path of a regular file
      * @throws LibvipsException when the operation fails
      */
     public Image thumbnail(int width, ThumbnailOptions options) {
@@ -275,10 +279,13 @@ public final class Image implements AutoCloseable {
     /**
      * Converts the image to {@code outputProfile}, from its embedded ICC profile ({@code icc_transform}).
      *
-     * @param outputProfile a built-in profile name such as {@code srgb}, {@code p3} or {@code cmyk}, or an ICC file
-     *        name; name files only from trusted configuration, libvips reads the file
+     * @param outputProfile a built-in profile name ({@code srgb}, {@code sgrey}, {@code p3}, {@code cmyk}) or the
+     *        absolute path of a regular ICC file; name files only from the application's own configuration, never
+     *        from request data, libvips reads the file
      * @param intent the rendering intent
      * @return the converted image, to close
+     * @throws IllegalArgumentException when {@code outputProfile} is neither a built-in name nor the absolute path of
+     *         a regular file (a device, directory, relative or missing name)
      * @throws LibvipsException when the operation fails
      */
     public Image iccTransform(String outputProfile, Intent intent) {

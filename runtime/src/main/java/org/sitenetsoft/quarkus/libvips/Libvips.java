@@ -1,5 +1,8 @@
 package org.sitenetsoft.quarkus.libvips;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,6 +22,16 @@ import org.sitenetsoft.quarkus.libvips.internal.VipsRuntime;
 public class Libvips {
 
     private static final String NOT_STARTED = "libvips is not started";
+
+    /** One pass, top to bottom, with the configured fail-on: how a thumbnail reads its source. */
+    private static final LoadOptions HEADER_PROBE = new LoadOptions(Access.SEQUENTIAL, Optional.empty(), 0, 1);
+
+    /**
+     * The longest file name, in UTF-8 bytes, that is sniffed as given: libvips copies a name into a 4096-byte buffer
+     * ({@code VIPS_PATH_MAX}) when it splits off {@code [options]}, so the name, the {@code []} appended for sniffing
+     * and the terminating NUL must fit.
+     */
+    static final int MAX_FILE_NAME_BYTES = 4093;
 
     private volatile VipsRuntime runtime;
 
@@ -101,6 +114,8 @@ public class Libvips {
      *
      * @param data the encoded image; copied, the array is not kept
      * @return the image, to close
+     * @throws LimitExceededException when the input is larger than {@code quarkus.libvips.limits.max-input-size}, or
+     *         its header declares more pixels than {@code quarkus.libvips.limits.max-input-pixels}
      * @throws UnsupportedFormatException when no loader accepts the data (empty, unknown or blocked format)
      * @throws LibvipsException when the loader fails
      * @throws LibvipsUnavailableException when libvips is unavailable
@@ -115,6 +130,8 @@ public class Libvips {
      * @param data the encoded image; copied, the array is not kept
      * @param options access, fail-on and pages
      * @return the image, to close
+     * @throws LimitExceededException when the input is larger than {@code quarkus.libvips.limits.max-input-size}, or
+     *         its header declares more pixels than {@code quarkus.libvips.limits.max-input-pixels}
      * @throws UnsupportedFormatException when no loader accepts the data (empty, unknown or blocked format)
      * @throws IllegalArgumentException when pages are asked of a loader without pages
      * @throws LibvipsException when the loader fails
@@ -128,6 +145,7 @@ public class Libvips {
                     UnsupportedFormatException.Reason.NO_LOADER);
         }
         VipsRuntime r = runtime();
+        checkSize(r, data.length);
         r.enter();
         try {
             String loader = r.findLoadBuffer(data).orElseThrow(() -> new UnsupportedFormatException(
@@ -143,8 +161,11 @@ public class Libvips {
      *
      * @param file the file
      * @return the image, to close
+     * @throws LimitExceededException when the file is larger than {@code quarkus.libvips.limits.max-input-size}, or
+     *         its header declares more pixels than {@code quarkus.libvips.limits.max-input-pixels}
      * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
-     * @throws IllegalArgumentException when the file name ends in white space
+     * @throws IllegalArgumentException when the file name ends in white space or is longer than 4093 bytes, or the file
+     *         exists but is not a regular file (a FIFO, device or directory)
      * @throws LibvipsException when the loader fails
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
@@ -158,9 +179,12 @@ public class Libvips {
      * @param file the file
      * @param options access, fail-on and pages
      * @return the image, to close
+     * @throws LimitExceededException when the file is larger than {@code quarkus.libvips.limits.max-input-size}, or
+     *         its header declares more pixels than {@code quarkus.libvips.limits.max-input-pixels}
      * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
      * @throws IllegalArgumentException when pages are asked of a loader without pages, or the file name ends in white
-     *         space
+     *         space or is longer than 4093 bytes, or the file exists but is not a regular file (a FIFO, device or
+     *         directory)
      * @throws LibvipsException when the loader fails
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
@@ -169,6 +193,7 @@ public class Libvips {
         Objects.requireNonNull(options, "options");
         String filename = filename(file);
         VipsRuntime r = runtime();
+        checkSize(r, file);
         r.enter();
         try {
             String loader = r.findLoad(sniffName(filename)).orElseThrow(() -> new UnsupportedFormatException(
@@ -209,7 +234,8 @@ public class Libvips {
      * {@code VipsForeignLoadJpegFile}; empty when none}
      *
      * @param file the file
-     * @throws IllegalArgumentException when the file name ends in white space
+     * @throws IllegalArgumentException when the file name ends in white space or is longer than 4093 bytes, or the file
+     *         exists but is not a regular file (a FIFO, device or directory)
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Optional<String> loaderFor(Path file) {
@@ -286,6 +312,21 @@ public class Libvips {
     }
 
     /**
+     * {@return whether libvips blocks the operation ({@code quarkus.libvips.security.*}); false when libvips has no
+     * such operation}
+     *
+     * @param operation a nickname such as {@code ppmload}, or a concrete class name such as
+     *        {@code VipsForeignLoadPpmFile}
+     * @throws IllegalArgumentException when {@code operation} names an abstract class such as
+     *         {@code VipsForeignLoadPpm} (block lists accept those; ask about a concrete variant here)
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public boolean isBlocked(String operation) {
+        Objects.requireNonNull(operation, "operation");
+        return runtime().isBlocked(operation);
+    }
+
+    /**
      * Makes a thumbnail from an encoded image in memory ({@code thumbnail_buffer}). libvips shrinks while decoding
      * where the format allows (JPEG, WebP, HEIF, PDF, SVG), so this is the fast path for uploads. The EXIF orientation
      * is applied unless {@link ThumbnailOptions#noRotate()}; {@code quarkus.libvips.fail-on} applies.
@@ -295,8 +336,11 @@ public class Libvips {
      *        argument allows (10 000 000 on a default libvips build)
      * @param options height, size, crop, rotation, colour profile
      * @return the thumbnail, to close
+     * @throws LimitExceededException when the input is larger than {@code quarkus.libvips.limits.max-input-size}, or
+     *         its header declares more pixels than {@code quarkus.libvips.limits.max-input-pixels}
      * @throws UnsupportedFormatException when no loader accepts the data (empty, unknown or blocked format)
-     * @throws IllegalArgumentException when {@code width} or the height is out of range
+     * @throws IllegalArgumentException when {@code width} or the height is out of range, or the output profile is not
+     *         accepted (see {@link ThumbnailOptions#outputProfile()})
      * @throws LibvipsException when the operation fails
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
@@ -308,10 +352,16 @@ public class Libvips {
                     UnsupportedFormatException.Reason.NO_LOADER);
         }
         VipsRuntime r = runtime();
+        checkSize(r, data.length);
         r.enter();
         try {
-            r.findLoadBuffer(data).orElseThrow(() -> new UnsupportedFormatException("vips_foreign_find_load_buffer",
-                    ErrorBuffer.take(), UnsupportedFormatException.Reason.NO_LOADER));
+            String loader = r.findLoadBuffer(data).orElseThrow(() -> new UnsupportedFormatException(
+                    "vips_foreign_find_load_buffer", ErrorBuffer.take(), UnsupportedFormatException.Reason.NO_LOADER));
+            if (r.settings().maxInputPixels() > 0) {
+                // thumbnail_buffer may shrink while decoding, so its output says nothing about the input: read the
+                // header once on its own and check the full size before any pixel is decoded
+                load(r, loader, "buffer", data, HEADER_PROBE).close();
+            }
             try (Operation op = Operation.create("thumbnail_buffer")) {
                 op.set("buffer", data);
                 op.set("width", width);
@@ -337,15 +387,18 @@ public class Libvips {
      *        argument allows (10 000 000 on a default libvips build)
      * @param options height, size, crop, rotation, colour profile
      * @return the thumbnail, to close
+     * @throws LimitExceededException when the file is larger than {@code quarkus.libvips.limits.max-input-size}, or
+     *         its header declares more pixels than {@code quarkus.libvips.limits.max-input-pixels}
      * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
-     * @throws IllegalArgumentException when {@code width} or the height is out of range, or the file name ends in
-     *         white space
+     * @throws IllegalArgumentException when {@code width} or the height is out of range, the output profile is not
+     *         accepted (see {@link ThumbnailOptions#outputProfile()}), the file name ends in white space or is
+     *         longer than 4093 bytes, or the file exists but is not a regular file (a FIFO, device or directory)
      * @throws LibvipsException when the loader or the operation fails
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Image thumbnail(Path file, int width, ThumbnailOptions options) {
         Objects.requireNonNull(options, "options");
-        try (Image source = load(file, new LoadOptions(Access.SEQUENTIAL, Optional.empty(), 0, 1))) {
+        try (Image source = load(file, HEADER_PROBE)) {
             return source.thumbnail(width, options);
         }
     }
@@ -389,9 +442,19 @@ public class Libvips {
      */
     private static String filename(Path file) {
         Objects.requireNonNull(file, "file");
-        String filename = file.toString();
+        // absolute, because the loader's file-name argument takes only absolute paths (see Operation)
+        String filename = file.toAbsolutePath().toString();
         if (!filename.isEmpty() && isVipsSpace(filename.charAt(filename.length() - 1))) {
             throw new IllegalArgumentException("file names ending in white space are not supported: " + file);
+        }
+        // a FIFO would block the sniffing open until a writer appears; a device or directory is never an image
+        if (Files.exists(file) && !Files.isRegularFile(file)) {
+            throw new IllegalArgumentException("not a regular file: " + file);
+        }
+        int bytes = filename.getBytes(StandardCharsets.UTF_8).length;
+        if (bytes > MAX_FILE_NAME_BYTES) {
+            throw new IllegalArgumentException("file names longer than " + MAX_FILE_NAME_BYTES
+                    + " bytes are not supported (libvips cuts them at 4096 bytes); this one has " + bytes);
         }
         return filename;
     }
@@ -413,10 +476,44 @@ public class Libvips {
                 op.set("page", options.page());
                 op.set("n", options.pages());
             }
+            Image image;
             try (Operation.Built built = op.build()) {
-                return new Image(built.image("out", r), this);
+                image = new Image(built.image("out", r), this);
             }
+            long limit = r.settings().maxInputPixels();
+            long pixels = (long) image.width() * image.height();
+            if (limit > 0 && pixels > limit) {
+                image.close();
+                throw new LimitExceededException(LimitExceededException.MAX_INPUT_PIXELS, pixels, limit);
+            }
+            return image;
         }
+    }
+
+    /** Refuses an input array larger than {@code quarkus.libvips.limits.max-input-size}. */
+    private static void checkSize(VipsRuntime r, long size) {
+        long limit = r.settings().maxInputSize();
+        if (limit > 0 && size > limit) {
+            throw new LimitExceededException(LimitExceededException.MAX_INPUT_SIZE, size, limit);
+        }
+    }
+
+    /**
+     * Refuses a file larger than {@code quarkus.libvips.limits.max-input-size}. A file that cannot be measured
+     * (missing, unreadable) is left to the loader lookup, which reports it. This is check-then-use: a file that grows
+     * after it was measured is still read; the pixel limit, checked on the header libvips reads, still applies.
+     */
+    private static void checkSize(VipsRuntime r, Path file) {
+        if (r.settings().maxInputSize() <= 0) {
+            return;
+        }
+        long size;
+        try {
+            size = Files.size(file);
+        } catch (IOException e) {
+            return;
+        }
+        checkSize(r, size);
     }
 
     /** Attaches the started (or unavailable) runtime; called once per application start by the recorder. */

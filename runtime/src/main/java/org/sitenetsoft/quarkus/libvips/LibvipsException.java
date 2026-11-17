@@ -36,7 +36,9 @@ public class LibvipsException extends RuntimeException {
 
     /**
      * {@return libvips's error text since the last failure; may be empty, and may include warnings or text from other
-     * calls}
+     * calls} libvips keeps one error buffer for the process, and some successful calls leave text in it, such as
+     * libjpeg's "premature end" warning after a lenient decode of a truncated JPEG, or "bad seek" lines after a HEIF
+     * read.
      */
     public String detail() {
         return detail;
