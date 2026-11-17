@@ -259,6 +259,12 @@ public final class LibvipsNative {
         voidCall("vips_shutdown");
     }
 
+    /**
+     * {@code vips_cache_drop_all}: for shutdown only, right before {@code vips_shutdown}. It destroys the operation
+     * cache rather than emptying it, and a later {@code vips_cache_operation_build} crashes (libvips 8.15) or logs
+     * GLib criticals (8.18). To empty the cache at run time, call {@link #cacheSetMax(int) cacheSetMax(0)} and then
+     * restore the previous value.
+     */
     static void cacheDropAll() {
         voidCall("vips_cache_drop_all");
     }

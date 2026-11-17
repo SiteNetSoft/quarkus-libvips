@@ -43,4 +43,6 @@ jobs:
           path: |
             **/target/surefire-reports/
             **/target/failsafe-reports/
+            **/target/surefire-reports/*.dumpstream
+            **/hs_err_pid*.log
           retention-days: 7

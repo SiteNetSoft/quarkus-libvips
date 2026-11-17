@@ -236,7 +236,6 @@ class LibvipsNativeTest {
         assertThat(LibvipsNative.findLoad(portraitPath().toString())).contains("VipsForeignLoadJpegFile");
         assertThat(LibvipsNative.findLoadBuffer(new byte[0])).isEmpty();
         LibvipsNative.errorClear();
-        LibvipsNative.cacheDropAll();
     }
 
     /** Loads the fixture with jpegload_buffer and checks the int and boolean getters on the built operation. */
