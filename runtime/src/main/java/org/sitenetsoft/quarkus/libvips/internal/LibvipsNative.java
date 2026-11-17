@@ -139,6 +139,8 @@ public final class LibvipsNative {
         fixed(m, "g_object_set_property", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS));
         fixed(m, "g_object_get_property", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS));
         fixed(m, "g_param_spec_get_default_value", FunctionDescriptor.of(ADDRESS, ADDRESS)); // const GValue *
+        // gboolean (GParamSpec *, GValue *): TRUE when the value had to be changed to fit the GParamSpec
+        fixed(m, "g_param_value_validate", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
         // type.h, enumtypes.h, util.h
         fixed(m, "vips_image_get_type", FunctionDescriptor.of(JAVA_LONG));
         fixed(m, "vips_blob_get_type", FunctionDescriptor.of(JAVA_LONG));
@@ -483,11 +485,11 @@ public final class LibvipsNative {
             if (rc != 0) {
                 return Optional.empty();
             }
-            MemorySegment value = (MemorySegment) h("g_param_spec_get_default_value")
-                    .invokeExact(pspec.get(ADDRESS, 0));
+            MemorySegment spec = pspec.get(ADDRESS, 0);
+            MemorySegment value = (MemorySegment) h("g_param_spec_get_default_value").invokeExact(spec);
             long type = value.reinterpret(GVALUE.byteSize()).get(JAVA_LONG, 0);
             int flags = (int) h("vips_object_get_argument_flags").invokeExact(object, n);
-            return Optional.of(new ArgumentSpec(type, flags));
+            return Optional.of(new ArgumentSpec(type, flags, spec));
         } catch (Throwable t) {
             throw rethrow(t);
         }
@@ -806,6 +808,16 @@ public final class LibvipsNative {
 
     // ---- helpers ----
 
+    /** A value that does not fit its argument's {@code GParamSpec}; the message says why, without the name. */
+    static final class InvalidValueException extends IllegalArgumentException {
+
+        private static final long serialVersionUID = 1L;
+
+        InvalidValueException(String message) {
+            super(message);
+        }
+    }
+
     @FunctionalInterface
     private interface ValueSetter {
         void set(MemorySegment gvalue, Arena arena) throws Throwable;
@@ -816,11 +828,26 @@ public final class LibvipsNative {
         T get(MemorySegment gvalue) throws Throwable;
     }
 
+    /**
+     * Fills a {@code GValue}, checks it against the argument's {@code GParamSpec} with {@code g_param_value_validate}
+     * and only then sets it: GLib would otherwise log a critical and silently keep the default for a value out of
+     * range (an int or double outside its bounds, NaN, flag bits outside the mask, an unknown enum value).
+     *
+     * @throws IllegalArgumentException {@code no argument <name>}
+     * @throws InvalidValueException {@code out of range (min to max)} or {@code not a valid value}
+     */
     private static void set(MemorySegment op, String name, long type, ValueSetter setter) {
+        MemorySegment pspec = argument(op, name).map(ArgumentSpec::pspec).orElseThrow(() -> {
+            errorBufferCopy(); // "no property named ..."
+            return new IllegalArgumentException("no argument " + name);
+        });
         try (Arena a = Arena.ofConfined()) {
             MemorySegment gv = gvalue(a, type);
             try {
                 setter.set(gv, a);
+                if ((int) h("g_param_value_validate").invokeExact(pspec, gv) != 0) {
+                    throw new InvalidValueException(invalid(pspec));
+                }
                 h("g_object_set_property").invokeExact(op, a.allocateFrom(name), gv);
             } finally {
                 h("g_value_unset").invokeExact(gv);
@@ -828,6 +855,23 @@ public final class LibvipsNative {
         } catch (Throwable t) {
             throw rethrow(t);
         }
+    }
+
+    /** {@code GParamSpec}: 72 bytes on LP64, then the bounds of {@code GParamSpecInt} / {@code GParamSpecDouble}. */
+    private static final long PSPEC_VALUE_TYPE = 24, PSPEC_MIN = 72, PSPEC_INT_MAX = 76, PSPEC_DOUBLE_MAX = 80;
+
+    /** Why a value failed validation, with the bounds of an int or double argument. */
+    private static String invalid(MemorySegment pspec) {
+        MemorySegment p = pspec.reinterpret(88);
+        long fundamental = fundamental(p.get(JAVA_LONG, PSPEC_VALUE_TYPE));
+        if (fundamental == G_TYPE_INT) {
+            return "out of range (" + p.get(JAVA_INT, PSPEC_MIN) + " to " + p.get(JAVA_INT, PSPEC_INT_MAX) + ")";
+        }
+        if (fundamental == G_TYPE_DOUBLE) {
+            return "out of range (" + p.get(JAVA_DOUBLE, PSPEC_MIN) + " to " + p.get(JAVA_DOUBLE, PSPEC_DOUBLE_MAX)
+                    + ")";
+        }
+        return "not a valid value";
     }
 
     private static <T> T get(MemorySegment op, String name, long type, ValueGetter<T> getter) {

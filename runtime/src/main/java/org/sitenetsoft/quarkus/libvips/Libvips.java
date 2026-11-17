@@ -1,9 +1,13 @@
 package org.sitenetsoft.quarkus.libvips;
 
+import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 
 import jakarta.inject.Singleton;
 
+import org.sitenetsoft.quarkus.libvips.internal.ErrorBuffer;
+import org.sitenetsoft.quarkus.libvips.internal.Operation;
 import org.sitenetsoft.quarkus.libvips.internal.VipsRuntime;
 
 /**
@@ -87,6 +91,184 @@ public class Libvips {
                     r.settings().blockUntrusted(), r.heifLoadBlocked(), r.openImages(), r.trackedMemory());
         } catch (LibvipsUnavailableException e) {
             return Status.unavailable(e.getMessage());
+        }
+    }
+
+    /**
+     * Loads an image from memory with {@link LoadOptions#DEFAULT}. Only the header is read now; pixels are decoded
+     * when an operation needs them, so a damaged file may fail later, in that operation.
+     *
+     * @param data the encoded image; copied, the array is not kept
+     * @return the image, to close
+     * @throws UnsupportedFormatException when no loader accepts the data (empty, unknown or blocked format)
+     * @throws LibvipsException when the loader fails
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Image load(byte[] data) {
+        return load(data, LoadOptions.DEFAULT);
+    }
+
+    /**
+     * Loads an image from memory.
+     *
+     * @param data the encoded image; copied, the array is not kept
+     * @param options access, fail-on and pages
+     * @return the image, to close
+     * @throws UnsupportedFormatException when no loader accepts the data (empty, unknown or blocked format)
+     * @throws IllegalArgumentException when pages are asked of a loader without pages
+     * @throws LibvipsException when the loader fails
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Image load(byte[] data, LoadOptions options) {
+        Objects.requireNonNull(data, "data");
+        Objects.requireNonNull(options, "options");
+        if (data.length == 0) {
+            throw new UnsupportedFormatException("load", "the input is empty",
+                    UnsupportedFormatException.Reason.NO_LOADER);
+        }
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            String loader = r.findLoadBuffer(data).orElseThrow(() -> new UnsupportedFormatException(
+                    "vips_foreign_find_load_buffer", ErrorBuffer.take(), UnsupportedFormatException.Reason.NO_LOADER));
+            return load(r, loader, "buffer", data, options);
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * Loads an image from a file with {@link LoadOptions#DEFAULT}.
+     *
+     * @param file the file
+     * @return the image, to close
+     * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
+     * @throws LibvipsException when the loader fails
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Image load(Path file) {
+        return load(file, LoadOptions.DEFAULT);
+    }
+
+    /**
+     * Loads an image from a file.
+     *
+     * @param file the file
+     * @param options access, fail-on and pages
+     * @return the image, to close
+     * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
+     * @throws IllegalArgumentException when pages are asked of a loader without pages
+     * @throws LibvipsException when the loader fails
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Image load(Path file, LoadOptions options) {
+        Objects.requireNonNull(file, "file");
+        Objects.requireNonNull(options, "options");
+        String filename = file.toString();
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            String loader = r.findLoad(sniffName(filename)).orElseThrow(() -> new UnsupportedFormatException(
+                    "vips_foreign_find_load", ErrorBuffer.take(), UnsupportedFormatException.Reason.NO_LOADER));
+            return load(r, loader, "filename", filename, options);
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * {@return the class name of the loader libvips would pick for {@code data}, such as
+     * {@code VipsForeignLoadJpegBuffer}; empty when none}
+     *
+     * @param data the encoded image; only its first 64 KiB are copied for sniffing
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Optional<String> loaderFor(byte[] data) {
+        Objects.requireNonNull(data, "data");
+        VipsRuntime r = runtime();
+        if (data.length == 0) {
+            return Optional.empty();
+        }
+        r.enter();
+        try {
+            Optional<String> loader = r.findLoadBuffer(data);
+            if (loader.isEmpty()) {
+                ErrorBuffer.take(); // "not in a known format": the empty result says it
+            }
+            return loader;
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * {@return the class name of the loader libvips would pick for {@code file}, such as
+     * {@code VipsForeignLoadJpegFile}; empty when none}
+     *
+     * @param file the file
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Optional<String> loaderFor(Path file) {
+        Objects.requireNonNull(file, "file");
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            Optional<String> loader = r.findLoad(sniffName(file.toString()));
+            if (loader.isEmpty()) {
+                ErrorBuffer.take();
+            }
+            return loader;
+        } finally {
+            r.exit();
+        }
+    }
+
+    /** {@return the images open now} */
+    public long openImages() {
+        VipsRuntime r = runtime;
+        return r == null ? 0 : r.openImages();
+    }
+
+    /** {@return the images released by the cleaner because they were never closed} */
+    public long leakedImages() {
+        VipsRuntime r = runtime;
+        return r == null ? 0 : r.leakedImages();
+    }
+
+    /**
+     * {@return the bytes libvips has allocated through its tracked allocator ({@code vips_tracked_get_mem})}
+     *
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public long trackedMemory() {
+        return runtime().trackedMemory();
+    }
+
+    /**
+     * The name to sniff a file by. {@code vips_foreign_find_load} reads a trailing {@code [...]} as loader options and
+     * looks at the file without it, so {@code upload.jpg[shrink=2]} would be sniffed as {@code upload.jpg}. An empty
+     * {@code []} appended is what it strips instead, so it sniffs exactly the file the loader opens. The loader gets
+     * the name unchanged through its {@code filename} property, which takes no options.
+     */
+    private static String sniffName(String filename) {
+        return filename + "[]";
+    }
+
+    private Image load(VipsRuntime r, String loader, String source, Object input, LoadOptions options) {
+        try (Operation op = Operation.create(loader)) {
+            op.set(source, input);
+            op.set("access", options.access());
+            op.set("fail_on", options.failOn().orElse(r.settings().failOn()));
+            if (options.selectsPages()) {
+                if (!op.has("page") || !op.has("n")) {
+                    throw new IllegalArgumentException(loader + " has no pages");
+                }
+                op.set("page", options.page());
+                op.set("n", options.pages());
+            }
+            try (Operation.Built built = op.build()) {
+                return new Image(built.image("out", r), this);
+            }
         }
     }
 

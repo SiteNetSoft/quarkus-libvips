@@ -287,6 +287,67 @@ public final class VipsRuntime {
         return leakedImages.get();
     }
 
+    /** Counts an image as open. */
+    void imageOpened() {
+        openImages.incrementAndGet();
+    }
+
+    /**
+     * Counts an image as closed.
+     *
+     * @param leaked whether the cleaner released it because it was never closed
+     */
+    void imageClosed(boolean leaked) {
+        openImages.decrementAndGet();
+        if (leaked) {
+            leakedImages.incrementAndGet();
+        }
+    }
+
+    /**
+     * {@return the loader class name for a buffer, empty when none} libvips leaves error text when there is none; the
+     * caller takes it.
+     *
+     * @param data the input; only its first 64 KiB are copied for sniffing
+     */
+    public Optional<String> findLoadBuffer(byte[] data) {
+        enter();
+        try {
+            return LibvipsNative.findLoadBuffer(data);
+        } finally {
+            exit();
+        }
+    }
+
+    /**
+     * {@return the loader class name for a file, empty when none} libvips leaves error text when there is none; the
+     * caller takes it.
+     *
+     * @param filename the file
+     */
+    public Optional<String> findLoad(String filename) {
+        enter();
+        try {
+            return LibvipsNative.findLoad(filename);
+        } finally {
+            exit();
+        }
+    }
+
+    /**
+     * {@return whether {@code operation} is a {@code VipsForeign} loader or saver}
+     *
+     * @param operation a nickname or class name
+     */
+    public boolean isForeign(String operation) {
+        enter();
+        try {
+            return LibvipsNative.typeFind("VipsForeign", operation) != 0;
+        } finally {
+            exit();
+        }
+    }
+
     /**
      * Stops this runtime: later uses throw {@link LibvipsUnavailableException}. With {@code shutdownLibrary}, waits up
      * to 2 s for in-flight calls to end and, only if they did and no image is open, drops the operation cache and
