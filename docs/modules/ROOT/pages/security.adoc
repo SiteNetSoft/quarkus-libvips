@@ -1,0 +1,184 @@
+= Security and limits
+
+include::includes/attributes.adoc[]
+
+The defaults are meant for an application that processes uploads from untrusted users: input size and pixel limits,
+the libvips operations that are not hardened against hostile input blocked, operations that run commands or open
+files never available, and file-name arguments checked. Each is described below with how to change it.
+
+== Untrusted operations
+
+At every start the extension unblocks every operation, then, with `quarkus.libvips.security.block-untrusted=true` (the
+default), blocks every operation libvips itself marks *untrusted* (`vips_block_untrusted_set`): loaders and savers
+whose libraries libvips does not consider safe for hostile input. Then `security.blocked-operations` is applied, then
+`security.allowed-operations`.
+
+The marked set depends on the libvips version and on which optional libraries it was built with. On the Debian and
+Ubuntu packages of libvips 8.15.1 (Ubuntu 24.04) and 8.18.7 it is:
+
+* loaders: vips, PPM/PBM/PGM/PFM, CSV, raw, Analyze, Radiance (`.hdr`), MATLAB, FITS, OpenEXR, OpenSlide, JPEG 2000,
+  JPEG XL, SVG, PDF (poppler) and ImageMagick;
+* savers: JPEG XL, FITS and ImageMagick, and from 8.18 also JPEG 2000.
+
+Builds with other optional libraries may add theirs. `vips -l | grep untrusted` lists the marked operations of the
+installed libvips. JPEG, PNG, WebP, GIF and TIFF stay loadable, and the savers `Image.save` uses (JPEG, PNG, WebP, HEIF/AVIF) are not
+marked.
+
+[[a-blocked-format-is-no-loader]]
+=== A blocked format looks unknown
+
+libvips leaves blocked loaders out of format detection: their sniffers never see the input. A blocked format can
+therefore not be told from an unknown one, and is reported as `UnsupportedFormatException` with reason `NO_LOADER`;
+its message adds "blocked loaders are not considered; see quarkus.libvips.security.*". `Libvips.isBlocked(operation)`
+tells whether an operation is blocked (it takes a nickname or a concrete class name such as
+`VipsForeignLoadHeifBuffer`; an abstract class name throws `IllegalArgumentException`), and the health check reports the block settings.
+
+=== Block lists
+
+`security.blocked-operations` and `security.allowed-operations` take libvips operation names in two forms:
+
+* a *nickname*, such as `pngload_buffer`, names one concrete variant: here only the loader from memory, not
+  `pngload` (file) or `pngload_source`;
+* a *class name*, such as `VipsForeignLoadPng`, names a class and every subclass: a base class covers the file,
+  buffer and source variants at once.
+
+Prefer base class names. An unknown name fails the start, naming the key and the value (with `required=false`: a WARN,
+and the application runs without libvips). `vips -l` prints every class name with its nickname in parentheses.
+
+[source,properties]
+----
+# also refuse GIF uploads, in every variant
+quarkus.libvips.security.blocked-operations=VipsForeignLoadNsgif
+# accept SVG uploads although libvips marks them untrusted
+quarkus.libvips.security.allowed-operations=VipsForeignLoadSvg
+----
+
+=== Matrix files on upload servers
+
+libvips does not mark its matrix loader (`matrixload`, plain-text `.mat` matrices) untrusted, so it is not blocked
+by default: the extension follows libvips's own marking and adds no rule of its own. A matrix file is a text format
+that an image upload never needs. For an upload server, block it:
+
+[source,properties]
+----
+quarkus.libvips.security.blocked-operations=VipsForeignLoadMatrix
+----
+
+[[heif-and-avif-reading]]
+=== HEIF and AVIF reading
+
+The extension follows libvips's own marking for HEIF too. libvips marks its HEIF loader (`heifload`, which also reads
+AVIF) untrusted only from *libvips 8.18.6, when built against libheif older than 1.23.2*. There, HEIC and AVIF uploads
+are not readable by default (they are reported as `NO_LOADER`), and this is the opt-in:
+
+[source,properties]
+----
+quarkus.libvips.security.allowed-operations=VipsForeignLoadHeif
+----
+
+Everywhere else the loader is not marked, so HEIF and AVIF reading is *allowed by default*: on Ubuntu 24.04 (libvips
+8.15.1 with libheif 1.17.6), Debian 13 (libvips 8.16), and builds against libheif 1.23.2 or later, even where the
+libheif in use is old. Keep libheif up to date, or block it yourself
+(`security.blocked-operations=VipsForeignLoadHeif`) if you do not need it. The state is visible as `heif-load-blocked`
+on the startup INFO line and in the health data. AVIF *saving* is never blocked.
+
+=== Never available
+
+Three operations are refused whatever the configuration, by class and with every subclass and nickname:
+
+* `system` runs a shell command. It stays blocked after every start (also after `allowed-operations=VipsOperation`,
+  which unblocks everything else), naming it in `allowed-operations` fails the start, and `Image.call` refuses it.
+* `globalbalance` and `remosaic` open files named in an image's metadata, with loader options, outside every limit
+  here. `Image.call` refuses them.
+
+Loaders and savers are not reachable through `Image.call` either: images are loaded only through `Libvips.load` and
+`Libvips.thumbnail`, with the limits below.
+
+== Limits
+
+[cols="2,1,4"]
+|===
+|Key |Default |Effect
+
+|`quarkus.libvips.limits.max-input-size`
+|`128M`
+|An input array or file larger than this is refused with `LimitExceededException` before anything is copied to native
+memory. `0` means no limit.
+
+|`quarkus.libvips.limits.max-input-pixels`
+|`268402689`
+|Width × height (× loaded pages) above which a load is refused, right after the header is read and before any pixel is
+decoded: a small file declaring huge dimensions (a decompression bomb) never allocates its pixels. The default is
+16383², sharp's default. `0` means no limit.
+|===
+
+Also:
+
+* An empty input (`byte[0]`) is refused as `NO_LOADER` without a native call.
+* File names that end in white space or are longer than 4093 bytes (libvips copies names into a 4096-byte buffer) are
+  refused, and so is a path that is not a regular file: a FIFO would block the thread until a writer appears, and a
+  device or directory is never an image.
+* The file size is checked, then the file is read (check-then-use): a file that grows in between is still read. The
+  pixel limit, checked on the header libvips reads, still applies.
+* The extension never sets a loader's `unlimited` option, so libvips's own loader limits (JPEG scans, PNG, HEIF, SVG
+  and TIFF metadata sizes) stay on.
+* Set the HTTP body limit (`quarkus.http.limits.max-body-size`) in line with `max-input-size`, so that an oversized
+  upload is refused before it is buffered.
+
+== Fail-on
+
+`quarkus.libvips.fail-on` is the default `fail_on` level of every load: `none` (the default, libvips's own), `truncated`,
+`error` or `warning`. With `none`, a truncated or damaged upload loads and saves as far as its data goes, so partial
+uploads stay usable; libvips's warning is left in its error buffer (below). Use
+`truncated` or `error` to refuse such files; `LoadOptions` overrides the level for one load.
+
+Images load lazily, so even with a strict level most damage is found only when pixels are computed: `save` or a
+thumbnail then throws a `LibvipsException` naming that operation, not the loader.
+
+[[file-name-arguments]]
+== File-name arguments
+
+Some libvips arguments name a file that libvips opens: the ICC profiles (`output_profile`, `input_profile`,
+`import_profile`, `export_profile`, `profile`), `fontfile` and `filename`. Through `Image.iccTransform`,
+`ThumbnailOptions.outputProfile` or `Image.call`, such an argument takes only:
+
+* a built-in profile name: `srgb`, `sgrey`, `p3`, `cmyk` (or `none`), in any case; or
+* the absolute path of an existing regular file.
+
+Anything else (relative names, which libvips would also look up in its own ICC directory; FIFOs; devices;
+directories) is refused with `IllegalArgumentException` before libvips sees it. This check cannot decide *which*
+regular files may be read: libvips reads whatever file it is given. It is also check-then-use: a path replaced (by a
+FIFO, for one) between the check and libvips opening it is not caught. *Take these values from the application's
+configuration, never from request data.*
+
+[[errors-under-concurrency]]
+== Errors under concurrency
+
+libvips keeps one error buffer for the whole process. The extension detects every failure from the call's own result
+and, right after it, takes the buffer's text (libvips copies and clears it in one step under its own lock). So each
+exception names the operation its own thread knows failed, and successes on other threads are unaffected. The text
+in `LibvipsException.detail()` is best-effort:
+
+* if two threads fail at the same instant, one exception may carry both texts and the other none;
+* calls that *succeed* also leave text there, which the next failure anywhere picks up: libjpeg's "premature end of
+  JPEG file" warning after a lenient load of a truncated JPEG, or "bad seek" lines after a HEIF or AVIF read;
+* the buffer holds 10 KiB; text beyond that is dropped until a failure takes it.
+
+Log `detail()` for diagnosis; decide on `operation()` and the exception type, never on the text.
+
+[[health-check]]
+== Health check
+
+With `quarkus-smallrye-health` in the application, the extension registers a readiness check named `libvips`. It runs
+no image operation: it reports the version, the library, the effective settings (`concurrency`, `cache.max-operations`,
+`cache.max-memory`, `cache.max-files`, `block-untrusted`, `heif-load-blocked`) and the counters `open-images` and
+`tracked-memory`, with `available=true`.
+
+* When libvips is missing and `quarkus.libvips.required=false`, the check is UP with `available=false` and a short
+  fixed `error` (the details are in the startup log only). The application chose to run without libvips; reporting it
+  DOWN would take a working application out of rotation.
+* `quarkus.libvips.health.enabled` is a *build-time* switch: set it to `false` before building to leave the check out.
+  `quarkus.smallrye-health.extensions.enabled=false` also removes it, with every other extension's check.
+* Health data is public by default. The version, library path and block settings tell an attacker which parsers run.
+  Serve health on the management interface (`quarkus.management.enabled=true`, a port that is not exposed publicly),
+  or disable the check.

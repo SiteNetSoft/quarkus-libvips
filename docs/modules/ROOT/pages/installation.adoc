@@ -1,0 +1,135 @@
+= Installation
+
+include::includes/attributes.adoc[]
+
+The extension calls the system's libvips (`libvips.so.42`); it never bundles it, in JVM mode or in a native
+executable. Install it on every machine that runs the application, and on the build machine to run your tests.
+
+*Minimum: libvips 8.15.* CI runs on Ubuntu 24.04 (libvips 8.15.1); development uses 8.18. An older library is refused
+at startup like a missing one. The startup INFO line names the version and the library file.
+
+[cols="1,2"]
+|===
+|System |Install
+
+|Debian 13, Ubuntu 24.04 and later
+|`apt install libvips42t64`
+
+|Older Debian and Ubuntu
+|`apt install libvips42` (check the version: Debian 12 ships 8.14, which is too old)
+
+|Alpine
+|`apk add vips`
+
+|Fedora
+|`dnf install vips`
+
+|RHEL, Rocky, Alma (EL)
+|`dnf install epel-release && dnf install vips` (from EPEL; check that its version is 8.15 or later)
+
+|macOS
+|Untested. Homebrew's `vips` installs `libvips.42.dylib`; name it with `quarkus.libvips.library` (below).
+
+|Windows
+|Not supported.
+|===
+
+`ldconfig -p | grep libvips` shows what the dynamic linker finds; `vips --version` (Debian/Ubuntu package
+`libvips-tools`) prints the version.
+
+== HEIF and AVIF codecs
+
+libvips reads and writes HEIF and AVIF through libheif, whose codecs are separate packages on Debian and Ubuntu.
+Decoding (`libheif-plugin-dav1d` or `libheif-plugin-aomdec` for AVIF, `libheif-plugin-libde265` for HEIC) usually comes
+with `libheif1`; the AV1 *encoder* `libheif-plugin-aomenc` is only recommended, so an image built with
+`--no-install-recommends` lacks it. Without an encoder `Image.save(SaveOptions.avif(…))` fails with a
+`LibvipsException` naming `heifsave_buffer` (the saver exists; its encoder does not). Install it explicitly when you
+save AVIF:
+
+[source,bash]
+----
+apt install libvips42t64 libheif-plugin-aomenc
+----
+
+Whether HEIF/AVIF *reading* is allowed by default depends on how libvips marks it: see
+xref:security.adoc#heif-and-avif-reading[HEIF and AVIF reading].
+
+== Where the extension looks
+
+Without configuration, the extension opens `libvips.so.42` through the dynamic linker (`LD_LIBRARY_PATH`, the `ld.so`
+cache), then looks for that file in each `java.library.path` and `LD_LIBRARY_PATH` entry and in
+`/usr/lib/x86_64-linux-gnu`, `/usr/lib/aarch64-linux-gnu`, `/usr/lib64` and `/usr/local/lib`. A candidate counts only
+when every C function the extension calls resolves in it. If none does, startup fails naming everything it tried.
+
+Anywhere else, name it. A value containing `/` is opened as that file; any other value goes unchanged to the dynamic
+linker:
+
+[source,properties]
+----
+quarkus.libvips.library=/opt/vips/lib/libvips.so.42
+----
+
+== One libvips per JVM
+
+libvips registers its types in the process's one GLib, so a JVM can hold one copy of it. The first application start
+records which copy it loaded; a later start in the same JVM (a dev-mode restart, the next `@QuarkusTest` application)
+that resolves to a *different* file fails with "restart the JVM". The same file reached under another name (a symlink,
+the soname instead of the path) is the same copy and is accepted. libvips's settings (concurrency, cache, blocked
+operations) are process-wide too: every start sets all of them, so the last application started wins.
+
+libvips cannot be initialised again after it is shut down, so the extension shuts it down only in production, when the
+JVM exits. In dev mode a restart reuses the initialised library. Images still open when an application stops are
+never released: closing them afterwards skips the native release, because the extension cannot tell whether libvips
+was shut down. That is by design; in dev mode it leaks the native memory of every image left open across a restart,
+one more reason to close images with try-with-resources.
+
+== Running without libvips
+
+By default an application with the extension fails to start when libvips cannot be loaded or is too old: it was
+deployed without a library it needs. To run without it instead:
+
+[source,properties]
+----
+quarkus.libvips.required=false
+----
+
+The application then starts with one WARN, `Libvips.isAvailable()` is `false`, and every image call throws
+`LibvipsUnavailableException`; fall back to another image library there. The readiness check stays UP with
+`available=false` (see xref:security.adoc#health-check[Health check]).
+
+== Container images
+
+The runtime image needs the library, not the build tools. The two Dockerfiles below are starting points; CI does not
+build them. For a JVM application (`target/quarkus-app`) on Debian 13:
+
+[source,dockerfile]
+----
+FROM eclipse-temurin:25-jre AS jre
+
+FROM debian:trixie-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libvips42t64 libheif-plugin-aomenc \
+ && rm -rf /var/lib/apt/lists/*
+ENV JAVA_HOME=/opt/java/openjdk
+COPY --from=jre /opt/java/openjdk /opt/java/openjdk
+COPY --chown=185 target/quarkus-app/ /deployments/
+USER 185
+ENTRYPOINT ["/opt/java/openjdk/bin/java", "--enable-native-access=ALL-UNNAMED", "-jar", "/deployments/quarkus-run.jar"]
+----
+
+On UBI 9, from EPEL (for a native executable, `quarkus.native.container-build` output):
+
+[source,dockerfile]
+----
+FROM registry.access.redhat.com/ubi9/ubi:9.6
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
+ && dnf install -y vips \
+ && dnf clean all
+COPY --chown=1001 target/*-runner /work/application
+USER 1001
+ENTRYPOINT ["/work/application"]
+----
+
+Check the EPEL version (`rpm -q vips`) against the 8.15 minimum; EPEL packages may also
+need packages from CodeReady Builder, of which the UBI repositories carry only part, so a Rocky Linux or AlmaLinux base
+image (`dnf config-manager --set-enabled crb`) may be the simpler route.

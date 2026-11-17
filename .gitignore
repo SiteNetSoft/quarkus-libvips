@@ -2,3 +2,5 @@ target/
 .idea/
 *.iml
 .vscode/
+docs/modules/ROOT/pages/includes/quarkus-libvips*.adoc
+docs/modules/ROOT/pages/includes/attributes.adoc

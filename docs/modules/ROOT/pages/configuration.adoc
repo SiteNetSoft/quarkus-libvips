@@ -1,0 +1,110 @@
+= Configuration reference
+
+include::includes/attributes.adoc[]
+
+Every key, with its default, generated from the extension's configuration interfaces. Build-time keys (marked with a
+lock) take effect when the application is built; all others can be changed at run time (system properties,
+environment variables, `application.properties`).
+
+[cols="2,1,1,4"]
+|===
+|Key |Phase |Default |Meaning
+
+|`quarkus.libvips.enabled`
+|build
+|`true`
+|The extension at all: the `Libvips` bean, the startup, the native registration. With `false` nothing starts and
+`Libvips` cannot be injected.
+
+|`quarkus.libvips.health.enabled`
+|build
+|`true`
+|The `libvips` readiness check, when the application has `quarkus-smallrye-health`.
+
+|`quarkus.libvips.library`
+|run
+|unset
+|Path (contains `/`) or name (passed to the dynamic linker) of the library; unset searches for `libvips.so.42`.
+
+|`quarkus.libvips.required`
+|run
+|`true`
+|Fail the start when libvips cannot be loaded or started; `false` runs without it.
+
+|`quarkus.libvips.concurrency`
+|run
+|unset
+|libvips worker threads per image pipeline; unset keeps libvips's default (`VIPS_CONCURRENCY`, else one per
+processor).
+
+|`quarkus.libvips.cache.max-operations`
+|run
+|`0`
+|Operation cache entries (`vips_cache_set_max`); `0`, the default, turns the operation cache off. See
+<<operation-cache>>.
+
+|`quarkus.libvips.cache.max-memory`
+|run
+|`50M`
+|Memory the operation cache may hold (`vips_cache_set_max_mem`).
+
+|`quarkus.libvips.cache.max-files`
+|run
+|`20`
+|Open files the operation cache may hold (`vips_cache_set_max_files`).
+
+|`quarkus.libvips.limits.max-input-pixels`
+|run
+|`268402689`
+|Width × height (× loaded pages) above which a load is refused before decoding; `0` means no limit.
+
+|`quarkus.libvips.limits.max-input-size`
+|run
+|`128M`
+|Size of an input array or file above which a load is refused; `0` means no limit.
+
+|`quarkus.libvips.fail-on`
+|run
+|`none`
+|Default `fail_on` of every load: `none`, `truncated`, `error` or `warning`.
+
+|`quarkus.libvips.security.block-untrusted`
+|run
+|`true`
+|Block every operation libvips marks untrusted.
+
+|`quarkus.libvips.security.blocked-operations`
+|run
+|unset
+|More operations to block: nicknames (one variant) or class names (with subclasses). Unknown names fail the start.
+
+|`quarkus.libvips.security.allowed-operations`
+|run
+|unset
+|Operations to unblock after the blocks, in the same forms. `system` cannot be allowed.
+|===
+
+libvips's settings are process-wide: every application start sets all of them, so in a JVM that starts several
+applications (dev-mode restarts, test suites) the last start wins, and a key removed between restarts goes back to
+its default. See xref:security.adoc[Security and limits] for the security keys and limits.
+
+[[operation-cache]]
+== The operation cache
+
+libvips can cache operations and reuse their results when the same operation runs again on the same inputs. The
+extension turns that cache off by default (`cache.max-operations=0`). A cached operation keeps its input images alive,
+and an image loaded from bytes keeps the whole native copy of those bytes: every transform of an upload, and the load
+libvips runs inside `thumbnail_buffer`, would keep the upload in native memory until the entry is evicted. That memory
+is not counted by `cache.max-memory`, so only the entry count bounds it; with libvips's own default of 100 entries and
+the 128 MiB input limit that could be gigabytes on an upload server, for results a server processing each upload once
+never reuses.
+
+Turn the cache on (for example `quarkus.libvips.cache.max-operations=100`) only for applications that repeat the same
+work on the same images, and size it with that retention in mind: with the cache on, uploads stay pinned until their
+entries are evicted. The extension's own loads are never cached, whatever the setting. `cache.max-memory` and
+`cache.max-files` apply only when the cache is on; their defaults (50M, 20) are below libvips's own (100 MB, 100
+files).
+
+== Keys
+
+include::includes/quarkus-libvips.adoc[leveloffset=+1]

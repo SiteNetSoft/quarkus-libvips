@@ -1,0 +1,5 @@
+name: quarkus-libvips
+title: libvips
+version: dev
+nav:
+  - modules/ROOT/nav.adoc

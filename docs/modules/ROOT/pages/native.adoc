@@ -1,0 +1,58 @@
+= Native image and native access
+
+include::includes/attributes.adoc[]
+
+== Native access (JVM and dev mode)
+
+The extension reaches libvips through the Foreign Function & Memory API: opening the library and creating downcall
+handles are _restricted_ operations. On JDK 25 a JVM without `--enable-native-access=ALL-UNNAMED` prints a warning on
+the first one (a later JDK may refuse instead). Add the flag to every JVM that runs the application:
+
+[source,bash]
+----
+java --enable-native-access=ALL-UNNAMED -jar target/quarkus-app/quarkus-run.jar
+----
+
+In a container image built from the Quarkus Dockerfiles, add it to `JAVA_OPTS_APPEND`. Tests: add it to the Surefire
+and Failsafe `argLine`.
+
+Dev mode needs nothing: the extension's metadata makes `quarkus:dev` start the application with the flag. A native
+executable needs nothing either.
+
+== Native image
+
+The extension needs no native-image configuration from you. What it does need is libvips *on the machine that runs
+the executable*: the executable opens `libvips.so.42` at startup with `dlopen`, exactly like the JVM, through
+`quarkus.libvips.library` or the same search (see xref:installation.adoc[Installation]). The extension never bundles
+or statically links libvips; build the executable anywhere (the Mandrel builder container, for one) and install
+libvips in the image that runs it.
+
+Native image creates every FFM call stub at build time from a list of function shapes; a shape missing from the list
+fails at run time. The extension registers:
+
+[cols="1,3"]
+|===
+|What |How
+
+|Downcall shapes
+|One `FfmDowncallBuildItem` per distinct C signature of the libvips and GLib functions the bindings call (pointers,
+`int`, `long` for `size_t` and `GType`, `double`). The bindings keep every function's `FunctionDescriptor` in one map;
+the deployment module derives the registration from that same map at build time, so a function added to the bindings
+is registered with it and the two cannot drift. A unit test checks every function has its shape registered. No call is variadic: every libvips operation is built through its `GValue` properties, so no
+option list needs a shape of its own. No upcalls.
+
+|Runtime-initialized classes
+|The internal classes that hold native state in static fields: the linked method handles and symbols
+(`LibvipsNative`), the library lookup (`LibraryLoader`), the error-buffer access (`ErrorBuffer`), the process-wide
+start state (`VipsRuntime`) and the `Cleaner` that releases forgotten images (`NativeImage`, whose thread must not
+start at image build time). They are registered even when the extension is disabled, since the classes stay on the
+class path.
+|===
+
+Nothing needs reflection, and no shared arena is used (each call uses a confined arena; only the library lookup uses
+the global arena), so `-H:+SharedArenaSupport` is not needed.
+
+The project's CI builds the integration-test application natively with the Mandrel builder image and runs the same
+REST tests against the executable, which opens the runner's `libvips.so.42`. Native builds are memory- and
+CPU-hungry; to cap them, pass for example
+`-Dquarkus.native.additional-build-args=-J-XX:TieredStopAtLevel=1,--parallelism=8`.

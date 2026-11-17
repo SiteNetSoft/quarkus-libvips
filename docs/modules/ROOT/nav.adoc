@@ -1,0 +1,6 @@
+* xref:index.adoc[Quarkus libvips]
+* xref:installation.adoc[Installation]
+* xref:usage.adoc[Usage]
+* xref:security.adoc[Security and limits]
+* xref:native.adoc[Native image and native access]
+* xref:configuration.adoc[Configuration reference]

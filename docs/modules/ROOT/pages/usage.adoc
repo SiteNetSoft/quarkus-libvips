@@ -1,0 +1,242 @@
+= Usage
+
+include::includes/attributes.adoc[]
+
+Everything starts from the `Libvips` bean (package `org.sitenetsoft.quarkus.libvips`), a thread-safe singleton:
+
+[source,java]
+----
+@Inject
+Libvips libvips;
+----
+
+== Images
+
+`Libvips.load` and `Libvips.thumbnail` return an `Image`, a handle on a libvips image. Images are immutable: every
+transform returns a new `Image` and leaves its source open.
+
+*Close every image*, with try-with-resources. `close()` is idempotent and thread-safe; any use after it throws
+`IllegalStateException`. A derived image keeps what it needs alive inside libvips, so closing its source first is
+safe. An image that is never closed is released by a `Cleaner` once it is unreachable and counted in
+`Libvips.leakedImages()`; that is a safety net, not a way to manage memory: the native memory stays allocated until
+the garbage collector runs. `Libvips.openImages()` counts the images open now.
+
+[source,java]
+----
+byte[] squareJpeg(byte[] upload) {
+    try (Image image = libvips.load(upload);
+            Image upright = image.autorotate();
+            Image square = upright.smartCrop(600, 600, Interesting.ATTENTION)) {
+        return square.save(SaveOptions.jpeg(85));
+    }
+}
+----
+
+=== Loading
+
+`load(byte[])` and `load(Path)` read only the header; pixels are decoded when an operation needs them. A damaged file
+can therefore load fine and fail later, in `save` or `thumbnail`, with a `LibvipsException` naming that operation;
+the images involved stay valid and closable.
+
+[source,java]
+----
+try (Image image = libvips.load(upload)) {
+    int width = image.width();
+    int height = image.height();
+    int orientation = image.orientation();     // 1 to 8, from EXIF; 1 when there is none
+    String loader = image.loader();            // "jpegload_buffer"
+    Optional<byte[]> icc = image.iccProfile();
+    Map<String, String> exif = image.exif();   // parsed tags by field name
+    Optional<String> make = image.field("exif-ifd0-Make");
+}
+----
+
+`LoadOptions` selects the access pattern, the `fail_on` level for this load (else `quarkus.libvips.fail-on`) and the
+pages of a multi-page image:
+
+[source,java]
+----
+LoadOptions strict = new LoadOptions(Access.SEQUENTIAL, Optional.of(FailOn.TRUNCATED), 0, 1);
+try (Image image = libvips.load(file, strict)) {
+    // ...
+}
+----
+
+A file is opened by its exact name: a trailing `[...]` is never read as libvips loader options. Names that end in
+white space or are longer than 4093 bytes are refused, and so is anything that is not a regular file (a FIFO, device
+or directory). Every load goes through the limits and blocked operations of xref:security.adoc[Security and limits].
+
+Input arrays are copied to native memory twice: into a per-call buffer, freed when the call returns, then into a
+blob libvips owns. That second copy of the whole input stays in native memory for as long as the `Image` (or an image
+derived from it) refers to it, and, if you turn the operation cache on, for as long as cached operations do (see
+xref:configuration.adoc#operation-cache[The operation cache]). The extension's own loads are never cached. Format
+detection copies at most the first 64 KiB.
+
+=== Thumbnails
+
+[source,java]
+----
+// fit inside 800 wide, never enlarge (the default)
+try (Image a = libvips.thumbnail(upload, 800, ThumbnailOptions.DEFAULT)) { }
+// fill 300 x 300, cropping to the most interesting part
+try (Image b = libvips.thumbnail(upload, 300, ThumbnailOptions.box(300, Interesting.ATTENTION))) { }
+// fit inside 800 x 600 and convert to sRGB
+ThumbnailOptions fit = new ThumbnailOptions(OptionalInt.of(600), Size.DOWN, Interesting.NONE, false,
+        Optional.of("srgb"), Intent.RELATIVE);
+try (Image c = libvips.thumbnail(upload, 800, fit)) { }
+----
+
+A thumbnail is turned upright by its EXIF orientation unless `noRotate` is set.
+
+* `Libvips.thumbnail(byte[], …)` is the fast path for uploads: libvips shrinks while decoding where the format allows
+  (JPEG, WebP, HEIF, PDF, SVG). With a pixel limit set, the header is read once on its own first, so the full size is
+  checked before any pixel is decoded.
+* `Libvips.thumbnail(Path, …)` loads the file through the loader its content selects and reduces it with
+  `thumbnail_image`: there is *no* shrink-on-load (libvips's own file thumbnail reads loader options from a `[...]` at
+  the end of the name, so it is not used). For large JPEGs, read the file into memory and use the `byte[]` method.
+* `Image.thumbnail(…)` works on an image already loaded, also without shrink-on-load.
+
+To size by height alone, give the height and a width as large as the height argument allows (10 000 000 works on every
+supported libvips).
+
+=== Transforms
+
+[source,java]
+----
+try (Image half = image.resize(0.5);
+        Image corner = image.crop(0, 0, 100, 100);
+        Image srgb = image.iccTransform("srgb", Intent.PERCEPTUAL)) {
+    // ...
+}
+----
+
+`autorotate()`, `thumbnail`, `resize`, `crop`, `smartCrop`, `iccImport()` and `iccTransform` cover the common cases.
+Colour profiles are a built-in name (`srgb`, `sgrey`, `p3`, `cmyk`) or the absolute path of a regular ICC file; take
+such a path from the application's configuration, never from request data (see
+xref:security.adoc#file-name-arguments[File-name arguments]).
+
+=== Saving
+
+[source,java]
+----
+byte[] jpeg = upright.save(SaveOptions.jpeg(85));
+byte[] png = upright.save(SaveOptions.png());
+byte[] webp = upright.save(new SaveOptions.Webp(90, true, 6, Set.of(Keep.ICC, Keep.EXIF)));
+byte[] avif = upright.save(SaveOptions.avif(50));
+----
+
+Each `SaveOptions` record names its libvips saver (`jpegsave_buffer`, `pngsave_buffer`, `webpsave_buffer`, and
+`heifsave_buffer` with AV1 compression for AVIF); savers are never looked up by suffix.
+
+[IMPORTANT]
+.Turn images upright before saving
+====
+The factories (`jpeg`, `png`, `webp`, `avif`) keep only the ICC profile (`Set.of(Keep.ICC)`) and strip the rest of
+the metadata. That drops the EXIF block, and with it the orientation: a photo that was not turned upright saves
+sideways as JPEG, PNG or WebP. Call `autorotate()`, or make a thumbnail (which turns it upright), before saving. AVIF
+records the rotation in its container (`irot`) and keeps it.
+====
+
+`Keep` mirrors libvips's `VipsForeignKeep` flags `EXIF`, `XMP`, `IPTC`, `ICC` and `OTHER`; an empty set keeps nothing.
+libvips 8.18 also has a gain-map flag that `Keep` does not expose, so gain maps are always dropped. `OTHER` is
+libvips's "other" class (such as PNG text chunks), not everything the other flags leave out.
+
+A saver that exists but cannot encode (blocked, or AVIF without libheif's AV1 encoder plugin) fails with a
+`LibvipsException` naming it; a saver this libvips does not have at all is an `UnsupportedFormatException` with
+reason `NO_SAVER`.
+
+== Any libvips operation
+
+`Image.call` runs any libvips operation on an image, for what the typed methods do not cover:
+
+[source,java]
+----
+Image sharpen(Image image) {
+    return image.call("sharpen", Map.of("sigma", 1.5));
+}
+----
+
+The image goes into the operation's image input (`in`, or `input` for operations such as `extract_area`) unless the
+map names one; other `Image` values in the map are passed as images. Values: `Integer`, any `Number` for doubles,
+`Boolean`, `String`, enums as the extension's enums (`Interesting`, `Intent`, …) or their libvips nick, flags as
+`Integer` bits or a nick such as `"icc:exif"`, `byte[]` for blobs and `double[]` for arrays of doubles. Every argument
+is checked against the operation's parameter specification before anything runs: an unknown, output, deprecated or
+out-of-range argument is an `IllegalArgumentException`. The operation must return its image as `out`; loaders and
+savers (use `load` and `save`), operations that modify an image in place (`draw_*`), and `system`, `globalbalance` and
+`remosaic` are refused.
+
+== Discovery
+
+[source,java]
+----
+Optional<String> loaderClass = libvips.loaderFor(upload); // "VipsForeignLoadJpegBuffer"
+Optional<String> saverClass = libvips.saverFor(".webp");  // "VipsForeignSaveWebpBuffer"
+boolean avif = libvips.hasOperation("heifsave_buffer");
+boolean blocked = libvips.isBlocked("ppmload");
+----
+
+* `isBlocked` takes a nickname (`ppmload`) or a *concrete* class name (`VipsForeignLoadPpmFile`); an abstract class
+  name such as `VipsForeignLoadPpm`, which the block lists accept, throws `IllegalArgumentException`: ask about a
+  concrete variant.
+
+* `loaderFor` and `saverFor` return GType *class names*; `Image.loader()` returns the loader's *nickname*
+  (`jpegload_buffer`).
+* `saverFor` is a suffix lookup only: `.avif` finds nothing, because libvips's HEIF saver declares `.heic` and `.heif`.
+  `save` does not use it. `saveSuffixes()` lists every suffix some saver accepts.
+* `hasOperation` tells whether this libvips was built with an optional format; an encoder plugin missing from libheif
+  does not show there.
+* `status()` returns the version, library, effective settings and counters (what the health check reports); it never
+  throws.
+
+== Threads
+
+`Libvips` is thread-safe. An `Image` may be read and transformed from several threads at once. Closing an image while
+another thread uses it is a bug in the caller, but a safe one: the other thread's next call throws
+`IllegalStateException`, and the native image is released only when the last call using it returns.
+
+libvips also runs its own worker threads inside each pipeline: `quarkus.libvips.concurrency` sets how many (libvips's
+default is the `VIPS_CONCURRENCY` environment variable, else one per processor). On a server handling many uploads at
+once, a small value (2 to 4) keeps one large image from taking every core.
+
+== Errors
+
+All exceptions are unchecked and extend `LibvipsException`, whose `operation()` names the libvips operation that
+failed:
+
+[cols="1,3"]
+|===
+|Exception |When
+
+|`LimitExceededException`
+|The input is larger than `limits.max-input-size`, or its header declares more pixels than `limits.max-input-pixels`;
+`actual()` and `limit()` give the numbers. Thrown before any pixel is decoded.
+
+|`UnsupportedFormatException`
+|`NO_LOADER`: no loader accepts the input (empty, unknown or blocked format, or a missing file). `NO_SAVER`: this
+libvips has no such saver.
+
+|`LibvipsUnavailableException`
+|libvips could not be loaded (with `required=false`), or the application is shutting down.
+
+|`LibvipsException`
+|The operation failed, for example a damaged image when its pixels are computed.
+|===
+
+[source,java]
+----
+byte[] safeThumbnail(byte[] upload) {
+    try (Image thumbnail = libvips.thumbnail(upload, 800, ThumbnailOptions.DEFAULT)) {
+        return thumbnail.save(SaveOptions.webp(80));
+    } catch (LimitExceededException e) {
+        throw new IllegalArgumentException("image too large: " + e.actual() + " > " + e.limit(), e);
+    } catch (UnsupportedFormatException e) {
+        throw new IllegalArgumentException("not an image we accept", e);
+    } catch (LibvipsException e) {
+        throw new IllegalArgumentException("could not process the image (" + e.operation() + ")", e);
+    }
+}
+----
+
+`detail()` carries libvips's error text, which is best-effort under concurrency: see
+xref:security.adoc#errors-under-concurrency[Errors under concurrency]. Invalid arguments (out-of-range sizes or
+qualities, a closed image) are `IllegalArgumentException` and `IllegalStateException`, thrown before libvips runs.

@@ -1,0 +1,59 @@
+= Quarkus libvips
+include::includes/attributes.adoc[]
+
+Image processing for Quarkus with https://www.libvips.org/[libvips]: load JPEG, PNG, WebP, GIF, TIFF and HEIF/AVIF
+uploads, read their header, EXIF and ICC profile, turn them upright, make thumbnails, resize, crop and convert colour
+profiles, and save to JPEG, PNG, WebP or AVIF. The extension calls the system's libvips through the Java Foreign
+Function & Memory API (`java.lang.foreign`); it works in JVM mode, dev mode and native image. It is built for
+untrusted uploads: input size and pixel limits, and the libvips loaders that are not hardened against hostile input
+blocked by default.
+
+Status: experimental. Requires libvips 8.15 or later, installed on the machine that runs the application; the
+extension never bundles it.
+
+== Quick start
+
+. Install libvips: see xref:installation.adoc[Installation] (Debian 13, Ubuntu 24.04: `apt install libvips42t64`).
+. Add the dependency:
++
+[source,xml,subs=attributes+]
+----
+<dependency>
+  <groupId>org.sitenetsoft</groupId>
+  <artifactId>quarkus-libvips</artifactId>
+  <version>{project-version}</version>
+</dependency>
+----
+. Inject `Libvips` and close every image:
++
+[source,java]
+----
+@Inject
+Libvips libvips;
+
+byte[] webpThumbnail(byte[] upload) {
+    try (Image thumbnail = libvips.thumbnail(upload, 800, ThumbnailOptions.DEFAULT)) {
+        return thumbnail.save(SaveOptions.webp(80));
+    }
+}
+----
+. Run the packaged application with `--enable-native-access=ALL-UNNAMED` (dev mode and native executables need
+  nothing): see xref:native.adoc[Native image and native access].
+
+== Contents
+
+* xref:installation.adoc[Installation]: packages, where the library is looked for, container images, running
+  without libvips.
+* xref:usage.adoc[Usage]: the API, closing images, thread safety, the generic operation call, errors.
+* xref:security.adoc[Security and limits]: blocked operations, HEIF/AVIF reading, limits, `fail-on`, file names,
+  errors under concurrency, the health check.
+* xref:native.adoc[Native image and native access]: what the extension registers, and the JVM flag.
+* xref:configuration.adoc[Configuration reference]: every key and its default.
+
+== Bindings
+
+The bindings are plain `java.lang.foreign` (one class holds every C function descriptor), with no variadic calls:
+every libvips operation is built through its `GValue` properties. The SmallRye FFM project is the intended binding
+library once a release can be linked into a native image; what it lacks for libvips today, and the issues filed, are
+listed in
+https://github.com/SiteNetSoft/quarkus-libvips/blob/master/docs/upstream-gaps.md[docs/upstream-gaps.md].
