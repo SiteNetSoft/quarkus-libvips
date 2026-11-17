@@ -1,10 +1,16 @@
 package org.sitenetsoft.quarkus.libvips.deployment;
 
+import java.lang.foreign.AddressLayout;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.ValueLayout;
+import java.util.List;
 import java.util.function.BooleanSupplier;
 
 import org.sitenetsoft.quarkus.libvips.Libvips;
 import org.sitenetsoft.quarkus.libvips.LibvipsBuildTimeConfig;
 import org.sitenetsoft.quarkus.libvips.LibvipsRecorder;
+import org.sitenetsoft.quarkus.libvips.internal.LibvipsNative;
 
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanContainerBuildItem;
@@ -18,6 +24,9 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.ServiceStartBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.FfmDowncallBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.FfmType;
+import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
 import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
 
 /**
@@ -98,5 +107,88 @@ class LibvipsProcessor {
         if (capabilities.isPresent(Capability.SMALLRYE_HEALTH)) {
             health.produce(new HealthBuildItem(HEALTH_CHECK, config.health().enabled()));
         }
+    }
+
+    /**
+     * The native-image downcall registrations, derived from {@link LibvipsNative#DOWNCALLS} so that they cannot drift
+     * from the bindings: one item per distinct shape (with its variadic index, none today). No linker option is used.
+     * {@code NativeDescriptorsTest} checks every C function has its shape here.
+     */
+    static final List<FfmDowncallBuildItem> DOWNCALLS = LibvipsNative.DOWNCALLS.values().stream()
+            .map(LibvipsProcessor::item)
+            .distinct()
+            .toList();
+
+    /**
+     * Classes whose static state must not be built into the image heap: the linked method handles and symbols, the
+     * library lookup, the error-buffer access, the process-global start state and the {@code Cleaner} (its thread)
+     * of {@code NativeImage}. Quarkus initialises every other class at build time, so any class that gains static
+     * native state (a {@code MemorySegment}, {@code Arena}, {@code SymbolLookup}, bound {@code MethodHandle} or
+     * {@code Cleaner}, or a field holding one) must be listed here.
+     */
+    static final List<String> RUNTIME_INITIALIZED = List.of(
+            "org.sitenetsoft.quarkus.libvips.internal.LibvipsNative",
+            "org.sitenetsoft.quarkus.libvips.internal.LibraryLoader",
+            "org.sitenetsoft.quarkus.libvips.internal.ErrorBuffer",
+            "org.sitenetsoft.quarkus.libvips.internal.VipsRuntime",
+            "org.sitenetsoft.quarkus.libvips.internal.NativeImage");
+
+    /**
+     * Register the downcall shapes for native image.
+     *
+     * @param downcalls the downcall producer
+     */
+    @BuildStep(onlyIf = IsEnabled.class)
+    void nativeForeignAccess(BuildProducer<FfmDowncallBuildItem> downcalls) {
+        DOWNCALLS.forEach(downcalls::produce);
+    }
+
+    /**
+     * Register the classes with static native state for run-time initialisation, also when the extension is disabled:
+     * the classes stay on the class path, and an application may still reach them.
+     *
+     * @param runtimeInit the run-time initialisation producer
+     */
+    @BuildStep
+    void runtimeInitialized(BuildProducer<RuntimeInitializedClassBuildItem> runtimeInit) {
+        RUNTIME_INITIALIZED.forEach(c -> runtimeInit.produce(new RuntimeInitializedClassBuildItem(c)));
+    }
+
+    /** {@return the registration for one C function: its shape, and its first variadic argument when it has one} */
+    static FfmDowncallBuildItem item(LibvipsNative.Downcall downcall) {
+        FunctionDescriptor fd = downcall.descriptor();
+        FfmType returnType = fd.returnLayout().map(LibvipsProcessor::ffmType).orElse(FfmType.VOID);
+        FfmType[] parameterTypes = fd.argumentLayouts().stream().map(LibvipsProcessor::ffmType)
+                .toArray(FfmType[]::new);
+        FfmDowncallBuildItem.Builder builder = FfmDowncallBuildItem.builder(returnType, parameterTypes);
+        if (downcall.firstVariadic() >= 0) {
+            builder.firstVariadicArg(downcall.firstVariadic());
+        }
+        return builder.build();
+    }
+
+    /**
+     * The registration models what the bindings use: pointers, {@code int}, {@code long}, {@code double}; anything
+     * else fails the build.
+     *
+     * @param layout an argument or return layout
+     * @return its native-image type
+     */
+    static FfmType ffmType(MemoryLayout layout) {
+        if (layout instanceof AddressLayout) {
+            return FfmType.ADDRESS;
+        }
+        if (layout instanceof ValueLayout v) {
+            if (v.carrier() == int.class) {
+                return FfmType.INT;
+            }
+            if (v.carrier() == long.class) {
+                return FfmType.LONG;
+            }
+            if (v.carrier() == double.class) {
+                return FfmType.DOUBLE;
+            }
+        }
+        throw new IllegalStateException("no native-image registration modelled for layout " + layout);
     }
 }
