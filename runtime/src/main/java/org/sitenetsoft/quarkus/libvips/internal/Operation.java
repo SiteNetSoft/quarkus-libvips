@@ -356,12 +356,9 @@ public final class Operation implements AutoCloseable {
         }
     }
 
+    /** The argument {@code name}; looking up a name that does not exist leaves libvips's error buffer alone. */
     private Optional<ArgumentSpec> spec(String name) {
-        Optional<ArgumentSpec> spec = LibvipsNative.argument(op, name);
-        if (spec.isEmpty()) {
-            ErrorBuffer.take(); // "no property named ...": the caller reports the unknown name itself
-        }
-        return spec;
+        return LibvipsNative.argument(op, name);
     }
 
     private static boolean isInput(ArgumentSpec spec) {

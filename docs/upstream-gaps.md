@@ -10,7 +10,8 @@ filed are kept in `docs/upstream/`.
 
 The extension calls libvips through **plain `java.lang.foreign`**, as quarkus-modsecurity does: the released
 SmallRye FFM 0.5 cannot be linked into a native image (gap 1). The binding class is the seam; the extension moves
-to SmallRye FFM once a release fixes gaps 1 and 2, and ideally gaps 3–5.
+to SmallRye FFM once a release fixes **gaps 1, 2 and 3**. Those three block the switch; gaps 4–9 have workarounds
+that work the same with SmallRye FFM (described under each), so fixing them would only remove code.
 
 Tested with SmallRye FFM 0.5 (Maven Central) and `main` @ 1062f48 (built locally), OpenJDK 25.0.5, libvips 8.18.7
 (Debian/Kali `libvips42t64`), Linux x86_64. On HotSpot, SmallRye FFM handles the whole libvips subset the extension
@@ -39,6 +40,7 @@ variadic calls (gap 10).
 | buffer the callee retains (`vips_image_new_from_buffer`) | native `MemorySegment` only | `byte[]` is a use-after-free (gap 8) |
 | library by soname (`libvips.so.42`) | `System.load` + no `@Lib` (`main` only) | `@Lib` cannot (gap 3) |
 | native image | — | blocked (gaps 1, 2) |
+| library by soname, without `System.load` | — | blocked (gap 3) |
 
 ## 1. SmallRye FFM 0.5: no native image (upstream issue #70, PR #71)
 
@@ -80,7 +82,10 @@ variadic calls (gap 10).
   not released).
 - **Workaround:** plain FFM: `SymbolLookup.libraryLookup("libvips.so.42" or a configured path, Arena.global())`;
   the GLib/GObject symbols resolve through the same handle (dependencies of libvips).
-  With SmallRye FFM `main`: no `@Lib`, `System.load(path)` before the first call.
+  With SmallRye FFM `main` the only route is no `@Lib` and `System.load(path)` before the first call. The extension
+  does not use `System.load`: a library loaded that way belongs to one class loader, and a dev-mode restart (a new
+  class loader) cannot load it again. **This gap blocks the switch** until #80 (PR #87) is released; releasing #64
+  alone still needs `System.load`.
 - **API we would have liked:** names that already look like file names used verbatim
   (`dlopen("libvips.so.42")`), or `@Lib(value = "libvips.so.42", mapped = false)`.
 - **Ask:** smallrye/smallrye-ffm#80, fix in PR #87 (text: `docs/upstream/smallrye-ffm-issue-lib-soname.md`);
@@ -107,7 +112,10 @@ variadic calls (gap 10).
 - **Gap:** an enum implementing `NativeIntValued`, documented as a valid argument, fails at the first call:
   `IllegalArgumentException: Return type mismatch ... Expected: (MemorySegment,Level)int Was:
   (MemorySegment,NativeIntValued)int` (fixed and variadic positions alike).
-- **Workaround:** pass `int` (the extension's Java enums carry their C value and convert at the call).
+- **Workaround:** the extension passes no C enum value as a Java enum. Each Java enum carries libvips's nick
+  (`centre`, `down`, ...); the binding resolves it with `vips_enum_from_nick` against the `GType` that the argument's
+  `GParamSpec` reports, and sets the resulting `int` in a `GValue` (`g_value_set_enum`). No C value is hard-coded,
+  and a nick this libvips lacks is refused before the call. With SmallRye FFM that is an `int` parameter, which works.
 - **Ask:** smallrye/smallrye-ffm#78, fix in PR #85 (`asType` on the converter; text:
   `docs/upstream/smallrye-ffm-issue-nativeintvalued-param.md`).
 
@@ -141,8 +149,10 @@ variadic calls (gap 10).
 - **Gap:** a `byte[]` or heap `MemorySegment` argument is copied into memory freed when the call returns; libvips then
   decodes freed memory (in our test: `VipsJpeg: Not a JPEG file: starts with 0x4d 0x65`). Documented behaviour for
   the copy, but nothing at the declaration warns or prevents it.
-- **Workaround:** the binding always passes a native segment whose arena lives as long as the image (closed after
-  the image's last reference is dropped), never heap data.
+- **Workaround:** the extension never hands libvips memory it does not own. An input `byte[]` is copied into a
+  native segment of a per-call confined arena, then `vips_blob_copy` copies it into memory libvips owns; the blob is
+  set on the operation as a `GValue` and the arena closes when the call returns. libvips's blob lives as long as
+  the operation and the images derived from it. That costs one extra copy and works the same with SmallRye FFM.
 - **Ask:** smallrye/smallrye-ffm#83 (text: `docs/upstream/smallrye-ffm-issue-heap-copy-retained.md`): document it;
   an opt-out annotation that rejects heap data.
 
@@ -153,6 +163,12 @@ variadic calls (gap 10).
   operation API (`g_value_init`, `g_object_set_property`, `g_object_get_property`).
 - **Gap:** no struct types; smallrye/smallrye-ffm#34 (struct layouts) is open and in design.
 - **Workaround:** a hand-written `StructLayout` and `MemorySegment` parameters; works on 0.5, `main` and plain FFM.
+  The binding also reads GLib structs by offset, which a struct API would declare instead (LP64 offsets):
+  - `GParamSpec.value_type` at 24, and the bounds of `GParamSpecInt` (`minimum` 72, `maximum` 76) and
+    `GParamSpecDouble` (`minimum` 72, `maximum` 80), for the range shown when a value fails validation and for
+    the height limit of a thumbnail;
+  - the `GType` (first field) of the `GValue` that `g_param_spec_get_default_value` returns, as the argument's type;
+  - `GTypeInstance.g_class` (first word of every object), the class handed to `g_object_class_find_property`.
 - **Ask:** posted as a comment on smallrye/smallrye-ffm#34 with this use case (unions, zeroed allocation; text:
   `docs/upstream/smallrye-ffm-comment-34-gvalue.md`).
 

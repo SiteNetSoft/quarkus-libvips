@@ -166,6 +166,14 @@ in `LibvipsException.detail()` is best-effort:
 
 Log `detail()` for diagnosis; decide on `operation()` and the exception type, never on the text.
 
+*Never return `detail()` to a client.* It can name host file paths (libvips's "file ... does not exist" names the
+absolute path it was given), the library paths and directories tried at start-up, and, for the reasons above, another
+request's failure. Exception messages are therefore fixed text: `getMessage()` names the operation and the kind of
+failure (`extract_area failed`, `vips_foreign_find_load: no loader accepts this input ...`,
+`libvips is unavailable`) and never includes libvips's text or a path; a `LimitExceededException` adds the sizes and
+the limit's configuration key. Even so, map exceptions to responses by type and `operation()` with text of your own,
+and log the rest. An `IllegalArgumentException` message can repeat the caller's own input, such as a file name.
+
 [[health-check]]
 == Health check
 

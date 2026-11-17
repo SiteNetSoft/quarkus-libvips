@@ -50,7 +50,7 @@ public class LibvipsRecorder {
         try {
             runtime = VipsRuntime.start(settings(cfg));
         } catch (RuntimeException | LinkageError e) {
-            String reason = e.getMessage() != null ? e.getMessage() : e.toString();
+            String reason = reason(e);
             if (cfg.required()) {
                 throw new ConfigurationException("libvips could not be started: " + reason, e);
             }
@@ -67,6 +67,17 @@ public class LibvipsRecorder {
                 + "heif-load-blocked %s", runtime.version(), runtime.library(), e.concurrency(),
                 e.cacheMaxOperations(), e.cacheMaxMemory(), e.cacheMaxFiles(), runtime.settings().blockUntrusted(),
                 runtime.heifLoadBlocked());
+    }
+
+    /**
+     * {@return why the start failed, for the operator} A {@link LibvipsUnavailableException}'s message is fixed; the
+     * reason (with the library paths and directories tried) is its {@link LibvipsException#detail()}.
+     */
+    private static String reason(Throwable e) {
+        if (e instanceof LibvipsException l && !l.detail().isBlank()) {
+            return l.detail().strip();
+        }
+        return e.getMessage() != null ? e.getMessage() : e.toString();
     }
 
     /**

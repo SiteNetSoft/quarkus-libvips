@@ -49,6 +49,24 @@ class ArgumentNameTest {
     }
 
     @Test
+    void lookupsLeaveTheErrorBufferAlone() {
+        // the buffer is process-global: a lookup must not take text another call left (or is about to take)
+        try (Operation op = Operation.create("extract_area")) {
+            ErrorBuffer.take();
+            assertThat(LibvipsNative.enumFromNick(LibvipsNative.interpretationType(), "nosuchvalue")).isNegative();
+            assertThat(op.has("in")).isFalse();
+            assertThat(op.has("nosuch")).isFalse();
+            assertThat(op.firstInput("in", "input")).contains("input");
+            assertThat(op.firstInput("nosuch")).isEmpty();
+            assertThat(op.hasImageOutput("nosuch")).isFalse();
+            assertThat(op.intMaximum("nosuch")).isEmpty();
+            assertThatThrownBy(() -> op.set("nosuch", 1)).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("extract_area has no argument nosuch");
+            assertThat(ErrorBuffer.take()).contains("nosuchvalue").doesNotContain("no property");
+        }
+    }
+
+    @Test
     void fileNameCheckUsesTheCanonicalName() {
         // past the shape check, straight to the lookup: every spelling GLib resolves is still checked
         try (Operation op = Operation.create("icc_import")) {

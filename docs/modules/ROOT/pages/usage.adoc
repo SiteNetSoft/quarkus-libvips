@@ -237,6 +237,7 @@ byte[] safeThumbnail(byte[] upload) {
 }
 ----
 
-`detail()` carries libvips's error text, which is best-effort under concurrency: see
-xref:security.adoc#errors-under-concurrency[Errors under concurrency]. Invalid arguments (out-of-range sizes or
+Exception messages are fixed text naming the operation and the kind of failure. `detail()` carries libvips's error
+text, for logs only: it can name host paths and is best-effort under concurrency, so never return it to a client (see
+xref:security.adoc#errors-under-concurrency[Errors under concurrency]). Invalid arguments (out-of-range sizes or
 qualities, a closed image) are `IllegalArgumentException` and `IllegalStateException`, thrown before libvips runs.

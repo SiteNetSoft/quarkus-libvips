@@ -60,13 +60,28 @@ class ImageResourceTest {
     @Test
     void garbageIs415() {
         given().contentType("application/octet-stream").body(new byte[] { 1, 2, 3, 4 }).post("/images/info").then()
-                .statusCode(415);
+                .statusCode(415).body(is(LibvipsExceptionMapper.UNSUPPORTED));
+    }
+
+    @Test
+    void corruptJpegIs422WithFixedText() {
+        // a JPEG signature, then garbage: the loader fails; libvips's text must not reach the client
+        byte[] corrupt = new byte[256];
+        corrupt[0] = (byte) 0xFF;
+        corrupt[1] = (byte) 0xD8;
+        corrupt[2] = (byte) 0xFF;
+        corrupt[3] = (byte) 0xE0;
+        for (int i = 4; i < corrupt.length; i++) {
+            corrupt[i] = (byte) (i * 7);
+        }
+        given().contentType("application/octet-stream").body(corrupt).post("/images/info").then().statusCode(422)
+                .body(is(LibvipsExceptionMapper.FAILED));
     }
 
     @Test
     void ppmIs415() { // NO_LOADER either way: no ppmload_buffer before 8.17, blocked (so not sniffed) from 8.17
         given().contentType("application/octet-stream").body(ppm()).post("/images/info").then().statusCode(415)
-                .body(containsString("quarkus.libvips.security"));
+                .body(is(LibvipsExceptionMapper.UNSUPPORTED));
     }
 
     @Test
@@ -94,13 +109,13 @@ class ImageResourceTest {
 
     @Test
     void blockedNeedsAnOperation() {
-        given().get("/images/blocked").then().statusCode(400).body(containsString("operation"));
+        given().get("/images/blocked").then().statusCode(400).body(is(LibvipsExceptionMapper.REFUSED));
     }
 
     @Test
     void systemCannotRun() {
         given().contentType("application/octet-stream").body(portrait()).post("/images/system").then()
-                .statusCode(400).body(containsString("is not available"));
+                .statusCode(400).body(is(LibvipsExceptionMapper.REFUSED));
     }
 
     @Test

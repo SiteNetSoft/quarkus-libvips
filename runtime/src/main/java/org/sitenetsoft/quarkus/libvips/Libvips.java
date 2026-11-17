@@ -39,7 +39,7 @@ public class Libvips {
      * The state of libvips, for health checks and diagnostics.
      *
      * @param available whether libvips can be used
-     * @param error why it cannot, when it cannot
+     * @param error why it cannot, when it cannot; it may name library paths, so log it but never return it to clients
      * @param version the libvips version, when available
      * @param library the library path or name, when available
      * @param concurrency worker threads per pipeline ({@code 0} when unavailable)
@@ -104,7 +104,7 @@ public class Libvips {
                     e.concurrency(), e.cacheMaxOperations(), e.cacheMaxMemory(), e.cacheMaxFiles(),
                     r.settings().blockUntrusted(), r.heifLoadBlocked(), r.openImages(), r.trackedMemory());
         } catch (LibvipsUnavailableException e) {
-            return Status.unavailable(e.getMessage());
+            return Status.unavailable(e.detail());
         }
     }
 
@@ -197,7 +197,8 @@ public class Libvips {
         r.enter();
         try {
             String loader = r.findLoad(sniffName(filename)).orElseThrow(() -> new UnsupportedFormatException(
-                    "vips_foreign_find_load", ErrorBuffer.take(), UnsupportedFormatException.Reason.NO_LOADER));
+                    "vips_foreign_find_load", ErrorBuffer.take().replace(sniffName(filename), filename),
+                    UnsupportedFormatException.Reason.NO_LOADER));
             return load(r, loader, "filename", filename, options);
         } finally {
             r.exit();
@@ -428,7 +429,8 @@ public class Libvips {
      * The name to sniff a file by. {@code vips_foreign_find_load} reads a trailing {@code [...]} as loader options and
      * looks at the file without it, so {@code upload.jpg[shrink=2]} would be sniffed as {@code upload.jpg}. An empty
      * {@code []} appended is what it strips instead, so it sniffs exactly the file the loader opens. The loader gets
-     * the name unchanged through its {@code filename} property, which takes no options.
+     * the name unchanged through its {@code filename} property, which takes no options. libvips's error text names
+     * the sniffing name; it is put back to the real name before it reaches {@link LibvipsException#detail()}.
      */
     private static String sniffName(String filename) {
         return filename + "[]";

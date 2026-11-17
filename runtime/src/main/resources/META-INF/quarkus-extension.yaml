@@ -14,4 +14,4 @@ metadata:
   status: "experimental"
   config:
     - "quarkus.libvips."
-  guide: "https://sitenetsoft.org/quarkus-libvips/"
+  guide: "https://github.com/SiteNetSoft/quarkus-libvips/tree/master/docs/modules/ROOT/pages"

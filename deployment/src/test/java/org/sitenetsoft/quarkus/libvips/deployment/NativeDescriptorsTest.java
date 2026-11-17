@@ -44,8 +44,8 @@ class NativeDescriptorsTest {
         assertThat(registered).as("no shape registered that no function uses").isEqualTo(linked);
         assertThat(LibvipsProcessor.DOWNCALLS).as("one item per distinct shape").hasSize(linked.size())
                 .doesNotHaveDuplicates();
-        // 84 functions in 29 shapes today; a new function either reuses a shape or adds one here
-        assertThat(LibvipsNative.DOWNCALLS).hasSize(84);
+        // 85 functions in 29 shapes today; a new function either reuses a shape or adds one here
+        assertThat(LibvipsNative.DOWNCALLS).hasSize(85);
         assertThat(linked).hasSize(29);
     }
 
@@ -60,12 +60,14 @@ class NativeDescriptorsTest {
         assertThat(shape(LibvipsNative.DOWNCALLS.get("g_param_spec_get_name").descriptor()))
                 .isEqualTo("void*(void*)");
         assertThat(shape(LibvipsNative.DOWNCALLS.get("vips_type_find").descriptor())).isEqualTo("jlong(void*,void*)");
+        assertThat(shape(LibvipsNative.DOWNCALLS.get("g_object_class_find_property").descriptor()))
+                .isEqualTo("void*(void*,void*)");
     }
 
     @Test
     void noVariadicRegistrationInV1() {
         // FfmDowncallBuildItem reports -1 when firstVariadicArg was never set
-        assertThat(new FfmDowncallBuildItem(FfmType.VOID).getFirstVariadicArg()).isEqualTo(-1);
+        assertThat(FfmDowncallBuildItem.builder(FfmType.VOID).build().getFirstVariadicArg()).isEqualTo(-1);
         assertThat(LibvipsNative.DOWNCALLS.values()).allSatisfy(d -> assertThat(d.firstVariadic()).isEqualTo(-1));
         assertThat(LibvipsProcessor.DOWNCALLS).allSatisfy(d -> {
             assertThat(d.getFirstVariadicArg()).isLessThan(0);

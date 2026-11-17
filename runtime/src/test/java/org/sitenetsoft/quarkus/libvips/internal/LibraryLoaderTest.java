@@ -2,6 +2,7 @@ package org.sitenetsoft.quarkus.libvips.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,9 +18,10 @@ class LibraryLoaderTest {
     @Test
     void missingPathListsWhatWasTried() {
         assertThatThrownBy(() -> LibraryLoader.load(Optional.of("/nonexistent/libvips.so.42")))
-                .isInstanceOf(LibvipsUnavailableException.class)
-                .hasMessageContaining("/nonexistent/libvips.so.42")
-                .hasMessageContaining("libvips42t64");
+                .isInstanceOf(LibvipsUnavailableException.class).hasMessage("libvips is unavailable")
+                .extracting(e -> ((LibvipsUnavailableException) e).detail(), STRING)
+                .contains("/nonexistent/libvips.so.42")
+                .contains("libvips42t64");
     }
 
     @Test
@@ -45,14 +47,15 @@ class LibraryLoaderTest {
         System.setProperty("java.library.path", dir.toString());
         try {
             assertThatThrownBy(() -> LibraryLoader.load(Optional.empty(), "libvips-none.so.42"))
-                    .isInstanceOf(LibvipsUnavailableException.class)
-                    .hasMessageContaining("tried: libvips-none.so.42 (")
-                    .hasMessageContaining(dir.resolve("libvips-none.so.42") + " (not found)")
-                    .hasMessageContaining("/usr/lib/x86_64-linux-gnu/libvips-none.so.42 (not found)")
-                    .hasMessageContaining("/usr/lib/aarch64-linux-gnu/libvips-none.so.42 (not found)")
-                    .hasMessageContaining("/usr/lib64/libvips-none.so.42 (not found)")
-                    .hasMessageContaining("/usr/local/lib/libvips-none.so.42 (not found)")
-                    .hasMessageEndingWith(
+                    .isInstanceOf(LibvipsUnavailableException.class).hasMessage("libvips is unavailable")
+                    .extracting(e -> ((LibvipsUnavailableException) e).detail(), STRING)
+                    .contains("tried: libvips-none.so.42 (")
+                    .contains(dir.resolve("libvips-none.so.42") + " (not found)")
+                    .contains("/usr/lib/x86_64-linux-gnu/libvips-none.so.42 (not found)")
+                    .contains("/usr/lib/aarch64-linux-gnu/libvips-none.so.42 (not found)")
+                    .contains("/usr/lib64/libvips-none.so.42 (not found)")
+                    .contains("/usr/local/lib/libvips-none.so.42 (not found)")
+                    .endsWith(
                             "install libvips (Debian/Ubuntu: libvips42t64) or set quarkus.libvips.library");
         } finally {
             System.setProperty("java.library.path", previous);

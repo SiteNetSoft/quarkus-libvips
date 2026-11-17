@@ -2,6 +2,7 @@ package org.sitenetsoft.quarkus.libvips.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
@@ -62,7 +63,8 @@ class VipsRuntimeTest {
         Path copy = dir.resolve("libvips.so.42");
         Files.copy(Path.of(realPath()), copy);
         assertThatThrownBy(() -> VipsRuntime.start(Settings.defaults().withLibrary(copy.toString())))
-                .isInstanceOf(LibvipsUnavailableException.class).hasMessageContaining("restart the JVM");
+                .isInstanceOf(LibvipsUnavailableException.class).hasMessage("libvips is unavailable")
+                .extracting(e -> ((LibvipsUnavailableException) e).detail(), STRING).contains("restart the JVM");
     }
 
     @Test
@@ -210,7 +212,8 @@ class VipsRuntimeTest {
         assertThat(r.available()).isFalse();
         assertThat(r.failure()).contains("no libvips here");
         assertThatThrownBy(r::checkUsable).isInstanceOf(LibvipsUnavailableException.class)
-                .hasMessageContaining("no libvips here");
+                .hasMessage("libvips is unavailable")
+                .extracting(e -> ((LibvipsUnavailableException) e).detail(), STRING).isEqualTo("no libvips here");
         assertThatThrownBy(r::version).isInstanceOf(LibvipsUnavailableException.class);
         assertThatThrownBy(r::enter).isInstanceOf(LibvipsUnavailableException.class);
         assertThat(r.stop(true)).isFalse();

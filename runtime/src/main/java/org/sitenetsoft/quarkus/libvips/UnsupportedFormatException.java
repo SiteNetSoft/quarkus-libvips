@@ -24,19 +24,21 @@ public class UnsupportedFormatException extends LibvipsException {
     private final Reason reason;
 
     /**
+     * Creates an exception with a fixed message: {@code <operation>: no loader accepts this input} and
+     * {@link #BLOCKED_HINT}, or {@code <operation>: no saver for this format}.
+     *
      * @param operation the operation or C function that found no loader or saver
-     * @param detail libvips's error text; may be empty
+     * @param detail libvips's error text, or why the input was refused; may be empty; never part of the message
      * @param reason why
      */
     public UnsupportedFormatException(String operation, String detail, Reason reason) {
-        super(operation, detail, message(operation, detail, reason));
+        super(operation, detail, message(operation, reason));
         this.reason = reason;
     }
 
-    private static String message(String operation, String detail, Reason reason) {
-        String what = reason == Reason.NO_LOADER ? "no loader accepts this input" : "no saver for this format";
-        return operation + ": " + what + (detail == null || detail.isBlank() ? "" : ": " + detail.strip())
-                + (reason == Reason.NO_LOADER ? " " + BLOCKED_HINT : "");
+    private static String message(String operation, Reason reason) {
+        return reason == Reason.NO_LOADER ? operation + ": no loader accepts this input " + BLOCKED_HINT
+                : operation + ": no saver for this format";
     }
 
     /** {@return why the format is unsupported} */

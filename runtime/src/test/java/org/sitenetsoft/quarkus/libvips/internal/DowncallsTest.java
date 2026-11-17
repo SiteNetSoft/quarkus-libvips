@@ -35,7 +35,7 @@ class DowncallsTest {
             "g_value_set_object", "g_value_set_boxed", "g_value_get_int", "g_value_get_double",
             "g_value_get_boolean", "g_value_get_object", "g_value_get_boxed", "g_object_set_property",
             "g_object_get_property", "g_param_spec_get_default_value", "g_param_value_validate",
-            "g_param_spec_get_name",
+            "g_param_spec_get_name", "g_object_class_find_property",
             "vips_image_get_type",
             "vips_blob_get_type", "vips_array_double_get_type", "vips_interpretation_get_type", "vips_blob_copy",
             "vips_blob_get", "vips_area_unref", "vips_value_set_array_double", "vips_enum_from_nick",
@@ -105,6 +105,8 @@ class DowncallsTest {
         m.put("g_param_spec_get_default_value", FunctionDescriptor.of(P, P)); // const GValue * (GParamSpec *)
         m.put("g_param_value_validate", FunctionDescriptor.of(I, P, P)); // gboolean (GParamSpec *, GValue *)
         m.put("g_param_spec_get_name", FunctionDescriptor.of(P, P)); // const gchar * (GParamSpec *)
+        // GParamSpec * (GObjectClass *, const gchar *property_name), NULL when absent, no error text
+        m.put("g_object_class_find_property", FunctionDescriptor.of(P, P, P));
         m.put("vips_image_get_type", FunctionDescriptor.of(L)); // GType (void)
         m.put("vips_blob_get_type", FunctionDescriptor.of(L));
         m.put("vips_array_double_get_type", FunctionDescriptor.of(L));
@@ -149,7 +151,7 @@ class DowncallsTest {
 
     @Test
     void everyDescriptorMatchesTheHeaders() {
-        assertThat(EXPECTED).hasSize(84);
+        assertThat(EXPECTED).hasSize(85);
         assertThat(EXPECTED.keySet()).isEqualTo(C_FUNCTIONS);
         EXPECTED.forEach((symbol, fd) -> assertThat(LibvipsNative.DOWNCALLS.get(symbol).descriptor()).as(symbol)
                 .isEqualTo(fd));
@@ -157,7 +159,7 @@ class DowncallsTest {
 
     @Test
     void exactlyTheCApi() {
-        assertThat(C_FUNCTIONS).hasSize(84);
+        assertThat(C_FUNCTIONS).hasSize(85);
         assertThat(LibvipsNative.DOWNCALLS.keySet()).containsExactlyInAnyOrderElementsOf(C_FUNCTIONS);
         LibvipsNative.DOWNCALLS.forEach((k, d) -> assertThat(d.symbol()).isEqualTo(k));
     }

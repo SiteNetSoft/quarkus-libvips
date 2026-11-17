@@ -42,7 +42,9 @@ class NotRequiredTest {
         assertThat(status.error()).hasValueSatisfying(e -> assertThat(e).contains("/nonexistent/libvips.so.42"));
         assertThat(status.version()).isEmpty();
         assertThat(status.library()).isEmpty();
-        assertThatThrownBy(libvips::version).isInstanceOf(LibvipsUnavailableException.class);
+        // the message is fixed: the library path and the directories tried are only in the WARN and the status
+        assertThatThrownBy(libvips::version).isInstanceOf(LibvipsUnavailableException.class)
+                .hasMessage("libvips is unavailable");
         assertThatThrownBy(libvips::library).isInstanceOf(LibvipsUnavailableException.class);
     }
 }

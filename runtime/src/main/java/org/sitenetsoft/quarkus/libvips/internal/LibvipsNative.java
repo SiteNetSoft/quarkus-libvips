@@ -29,7 +29,7 @@ import java.util.SequencedMap;
  * <p>
  * Internal. The class is public only so that the deployment module can derive the native-image registration from
  * {@link #DOWNCALLS}; applications must not use it. It is the seam for a later SmallRye FFM binding, once a release
- * fixes gaps 1–4 of {@code docs/upstream-gaps.md}.
+ * fixes gaps 1, 2 and 3 of {@code docs/upstream-gaps.md} (the others have workarounds that work there too).
  * <p>
  * {@link #DOWNCALLS} is the single source: {@link #bind(SymbolLookup)} links one handle per entry, and the deployment
  * registers one native-image downcall per distinct shape. There is no variadic downcall; options are set as
@@ -142,6 +142,8 @@ public final class LibvipsNative {
         // gboolean (GParamSpec *, GValue *): TRUE when the value had to be changed to fit the GParamSpec
         fixed(m, "g_param_value_validate", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
         fixed(m, "g_param_spec_get_name", FunctionDescriptor.of(ADDRESS, ADDRESS)); // const gchar * (GParamSpec *)
+        // GParamSpec * (GObjectClass *, const gchar *): NULL for an unknown name, with no error text
+        fixed(m, "g_object_class_find_property", FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS));
         // type.h, enumtypes.h, util.h
         fixed(m, "vips_image_get_type", FunctionDescriptor.of(JAVA_LONG));
         fixed(m, "vips_blob_get_type", FunctionDescriptor.of(JAVA_LONG));
@@ -481,19 +483,28 @@ public final class LibvipsNative {
     /**
      * The canonical name ({@code g_param_spec_get_name}), value type (from the {@code GParamSpec}'s default value) and
      * flags of an argument of {@code object}.
+     * <p>
+     * Whether the argument exists is asked first with {@code g_object_class_find_property}, which writes no error text:
+     * libvips's error buffer is process-global, so a lookup must neither leave text in it nor take text another call
+     * left there. The object's class is the first word of the instance ({@code GTypeInstance.g_class}).
      *
-     * @return empty when {@code vips_object_get_argument} fails; libvips then leaves text in the error buffer, which
-     *         the caller clears
+     * @return empty when the object has no property {@code name}, or (never seen) when {@code vips_object_get_argument}
+     *         refuses a property that exists; only the latter writes error text, which is taken here
      */
     static Optional<ArgumentSpec> argument(MemorySegment object, String name) {
         try (Arena a = Arena.ofConfined()) {
             MemorySegment n = a.allocateFrom(name);
+            MemorySegment objectClass = object.reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0);
+            if (((MemorySegment) h("g_object_class_find_property").invokeExact(objectClass, n)).equals(NULL)) {
+                return Optional.empty();
+            }
             MemorySegment pspec = a.allocate(ADDRESS);
             MemorySegment argumentClass = a.allocate(ADDRESS);
             MemorySegment argumentInstance = a.allocate(ADDRESS);
             int rc = (int) h("vips_object_get_argument").invokeExact(object, n, pspec, argumentClass,
                     argumentInstance);
             if (rc != 0) {
+                errorBufferCopy(); // "no property named ...": the caller reports the unknown name itself
                 return Optional.empty();
             }
             MemorySegment spec = pspec.get(ADDRESS, 0);
@@ -849,10 +860,8 @@ public final class LibvipsNative {
      * @throws InvalidValueException {@code out of range (min to max)} or {@code not a valid value}
      */
     private static void set(MemorySegment op, String name, long type, ValueSetter setter) {
-        MemorySegment pspec = argument(op, name).map(ArgumentSpec::pspec).orElseThrow(() -> {
-            errorBufferCopy(); // "no property named ..."
-            return new IllegalArgumentException("no argument " + name);
-        });
+        MemorySegment pspec = argument(op, name).map(ArgumentSpec::pspec)
+                .orElseThrow(() -> new IllegalArgumentException("no argument " + name));
         try (Arena a = Arena.ofConfined()) {
             MemorySegment gv = gvalue(a, type);
             try {
