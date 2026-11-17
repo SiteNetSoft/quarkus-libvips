@@ -52,7 +52,8 @@ class LibraryLoaderTest {
                     .hasMessageContaining("/usr/lib/aarch64-linux-gnu/libvips-none.so.42 (not found)")
                     .hasMessageContaining("/usr/lib64/libvips-none.so.42 (not found)")
                     .hasMessageContaining("/usr/local/lib/libvips-none.so.42 (not found)")
-                    .hasMessageEndingWith("install libvips (Debian/Ubuntu: libvips42t64) or set quarkus.libvips.library");
+                    .hasMessageEndingWith(
+                            "install libvips (Debian/Ubuntu: libvips42t64) or set quarkus.libvips.library");
         } finally {
             System.setProperty("java.library.path", previous);
         }

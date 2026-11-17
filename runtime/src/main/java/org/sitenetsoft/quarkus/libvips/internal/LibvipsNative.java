@@ -421,8 +421,8 @@ public final class LibvipsNative {
     }
 
     /**
-     * {@code g_type_from_name}: the {@code GType} of a registered type name, 0 when unknown. Finds abstract classes such
-     * as {@code VipsForeignLoadHeif}, which {@link #typeFind} skips; a nickname is not a type name.
+     * {@code g_type_from_name}: the {@code GType} of a registered type name, 0 when unknown. Finds abstract classes
+     * such as {@code VipsForeignLoadHeif}, which {@link #typeFind} skips; a nickname is not a type name.
      */
     static long typeFromName(String name) {
         try (Arena a = Arena.ofConfined()) {

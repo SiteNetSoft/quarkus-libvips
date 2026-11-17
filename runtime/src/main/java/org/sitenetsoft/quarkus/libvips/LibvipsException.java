@@ -15,7 +15,8 @@ public class LibvipsException extends RuntimeException {
      * @param detail libvips's error text; may be empty
      */
     public LibvipsException(String operation, String detail) {
-        this(operation, detail, operation + " failed" + (detail == null || detail.isBlank() ? "" : ": " + detail.strip()));
+        this(operation, detail,
+                operation + " failed" + (detail == null || detail.isBlank() ? "" : ": " + detail.strip()));
     }
 
     /**

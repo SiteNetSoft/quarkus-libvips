@@ -36,6 +36,7 @@ class UnknownBlockedOperationNotRequiredTest {
     void startsWithoutLibvips() {
         assertThat(libvips.isAvailable()).isFalse();
         assertThat(libvips.status().error()).hasValueSatisfying(
-                e -> assertThat(e).contains("quarkus.libvips.security.blocked-operations: unknown operation nosuchload"));
+                e -> assertThat(e)
+                        .contains("quarkus.libvips.security.blocked-operations: unknown operation nosuchload"));
     }
 }

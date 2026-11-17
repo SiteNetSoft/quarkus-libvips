@@ -74,7 +74,8 @@ class VipsRuntimeTest {
 
     @Test
     void restartResetsBlockedAndConcurrency() {
-        VipsRuntime.start(Settings.defaults().withConcurrency(3).withSecurity(true, List.of("pngload_buffer"), List.of()));
+        VipsRuntime.start(
+                Settings.defaults().withConcurrency(3).withSecurity(true, List.of("pngload_buffer"), List.of()));
         VipsRuntime r = VipsRuntime.start(Settings.defaults());
         assertThat(r.isBlocked("pngload_buffer")).isFalse();
         assertThat(r.effective().concurrency()).isEqualTo(2); // VIPS_CONCURRENCY=2 from the wrapper/surefire
@@ -96,7 +97,8 @@ class VipsRuntimeTest {
     void blockListsAcceptNicknamesAndRejectUnknownNames() {
         VipsRuntime r = VipsRuntime.start(Settings.defaults().withSecurity(true, List.of("pngload_buffer"), List.of()));
         assertThat(r.isBlocked("pngload_buffer")).isTrue();
-        assertThatThrownBy(() -> VipsRuntime.start(Settings.defaults().withSecurity(true, List.of("nosuchload"), List.of())))
+        assertThatThrownBy(
+                () -> VipsRuntime.start(Settings.defaults().withSecurity(true, List.of("nosuchload"), List.of())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("quarkus.libvips.security.blocked-operations: unknown operation nosuchload");
     }
@@ -104,14 +106,16 @@ class VipsRuntimeTest {
     @Test
     void blockListsAcceptAbstractClassNames() {
         // vips_type_find skips abstract classes; the g_type_from_name fallback finds them
-        VipsRuntime r = VipsRuntime.start(Settings.defaults().withSecurity(true, List.of("VipsForeignLoadPng"), List.of()));
+        VipsRuntime r = VipsRuntime.start(
+                Settings.defaults().withSecurity(true, List.of("VipsForeignLoadPng"), List.of()));
         assertThat(r.isBlocked("pngload_buffer")).isTrue();
         assertThat(r.isBlocked("pngload")).isTrue();
         r = VipsRuntime.start(Settings.defaults()
                 .withSecurity(true, List.of("VipsForeignLoadPng"), List.of("VipsForeignLoadPngBuffer")));
         assertThat(r.isBlocked("pngload_buffer")).isFalse();
         assertThat(r.isBlocked("pngload")).isTrue();
-        assertThatThrownBy(() -> VipsRuntime.start(Settings.defaults().withSecurity(true, List.of(), List.of("VipsImage"))))
+        assertThatThrownBy(
+                () -> VipsRuntime.start(Settings.defaults().withSecurity(true, List.of(), List.of("VipsImage"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("quarkus.libvips.security.allowed-operations: unknown operation VipsImage");
     }

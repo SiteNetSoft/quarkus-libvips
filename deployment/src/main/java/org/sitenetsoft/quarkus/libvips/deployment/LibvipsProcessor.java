@@ -88,8 +88,8 @@ class LibvipsProcessor {
      */
     @BuildStep(onlyIf = IsEnabled.class)
     @Record(ExecutionTime.RUNTIME_INIT)
-    ServiceStartBuildItem init(LibvipsRecorder recorder, BeanContainerBuildItem beans, ShutdownContextBuildItem shutdown,
-            LaunchModeBuildItem launchMode) {
+    ServiceStartBuildItem init(LibvipsRecorder recorder, BeanContainerBuildItem beans,
+            ShutdownContextBuildItem shutdown, LaunchModeBuildItem launchMode) {
         recorder.init(beans.getValue(), shutdown, launchMode.getLaunchMode());
         return new ServiceStartBuildItem(FEATURE);
     }
