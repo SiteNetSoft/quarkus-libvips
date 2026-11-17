@@ -143,6 +143,7 @@ public class Libvips {
      * @param file the file
      * @return the image, to close
      * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
+     * @throws IllegalArgumentException when the file name ends in white space
      * @throws LibvipsException when the loader fails
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
@@ -157,14 +158,15 @@ public class Libvips {
      * @param options access, fail-on and pages
      * @return the image, to close
      * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
-     * @throws IllegalArgumentException when pages are asked of a loader without pages
+     * @throws IllegalArgumentException when pages are asked of a loader without pages, or the file name ends in white
+     *         space
      * @throws LibvipsException when the loader fails
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Image load(Path file, LoadOptions options) {
         Objects.requireNonNull(file, "file");
         Objects.requireNonNull(options, "options");
-        String filename = file.toString();
+        String filename = filename(file);
         VipsRuntime r = runtime();
         r.enter();
         try {
@@ -206,20 +208,86 @@ public class Libvips {
      * {@code VipsForeignLoadJpegFile}; empty when none}
      *
      * @param file the file
+     * @throws IllegalArgumentException when the file name ends in white space
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Optional<String> loaderFor(Path file) {
-        Objects.requireNonNull(file, "file");
+        String filename = filename(file);
         VipsRuntime r = runtime();
         r.enter();
         try {
-            Optional<String> loader = r.findLoad(sniffName(file.toString()));
+            Optional<String> loader = r.findLoad(sniffName(filename));
             if (loader.isEmpty()) {
                 ErrorBuffer.take();
             }
             return loader;
         } finally {
             r.exit();
+        }
+    }
+
+    /**
+     * Makes a thumbnail from an encoded image in memory ({@code thumbnail_buffer}). libvips shrinks while decoding
+     * where the format allows (JPEG, WebP, HEIF, PDF, SVG), so this is the fast path for uploads. The EXIF orientation
+     * is applied unless {@link ThumbnailOptions#noRotate()}; {@code quarkus.libvips.fail-on} applies.
+     *
+     * @param data the encoded image; copied, the array is not kept
+     * @param width the target width; to size by height alone, give a height and a width as large as the height
+     *        argument allows (10 000 000 on a default libvips build)
+     * @param options height, size, crop, rotation, colour profile
+     * @return the thumbnail, to close
+     * @throws UnsupportedFormatException when no loader accepts the data (empty, unknown or blocked format)
+     * @throws IllegalArgumentException when {@code width} or the height is out of range
+     * @throws LibvipsException when the operation fails
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Image thumbnail(byte[] data, int width, ThumbnailOptions options) {
+        Objects.requireNonNull(data, "data");
+        Objects.requireNonNull(options, "options");
+        if (data.length == 0) {
+            throw new UnsupportedFormatException("thumbnail", "the input is empty",
+                    UnsupportedFormatException.Reason.NO_LOADER);
+        }
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            r.findLoadBuffer(data).orElseThrow(() -> new UnsupportedFormatException("vips_foreign_find_load_buffer",
+                    ErrorBuffer.take(), UnsupportedFormatException.Reason.NO_LOADER));
+            try (Operation op = Operation.create("thumbnail_buffer")) {
+                op.set("buffer", data);
+                op.set("width", width);
+                options.applyTo(op);
+                op.set("fail_on", r.settings().failOn());
+                try (Operation.Built built = op.build()) {
+                    return new Image(built.image("out", r), this);
+                }
+            }
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * Makes a thumbnail from a file. The file is opened by its exact name through the loader its content selects, read
+     * once top to bottom, and reduced with {@code thumbnail_image}. libvips's own file thumbnail operation is not used:
+     * it reads loader options from a {@code [...]} at the end of the name. That also means no shrink while decoding;
+     * for large JPEGs read the file into memory and use {@link #thumbnail(byte[], int, ThumbnailOptions)}.
+     *
+     * @param file the file
+     * @param width the target width; to size by height alone, give a height and a width as large as the height
+     *        argument allows (10 000 000 on a default libvips build)
+     * @param options height, size, crop, rotation, colour profile
+     * @return the thumbnail, to close
+     * @throws UnsupportedFormatException when no loader accepts the file (missing, unknown or blocked format)
+     * @throws IllegalArgumentException when {@code width} or the height is out of range, or the file name ends in
+     *         white space
+     * @throws LibvipsException when the loader or the operation fails
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Image thumbnail(Path file, int width, ThumbnailOptions options) {
+        Objects.requireNonNull(options, "options");
+        try (Image source = load(file, new LoadOptions(Access.SEQUENTIAL, Optional.empty(), 0, 1))) {
+            return source.thumbnail(width, options);
         }
     }
 
@@ -252,6 +320,26 @@ public class Libvips {
      */
     private static String sniffName(String filename) {
         return filename + "[]";
+    }
+
+    /**
+     * The file name, refused defensively when it ends in white space. libvips itself keeps such a name intact (the
+     * sniff of {@code "upload.jpg []"} reads {@code "upload.jpg "}), but the name goes through libvips's file-name and
+     * option splitting for sniffing, whose tokenizer skips white space; a name that ends in it is kept out so that
+     * splitting is never ambiguous.
+     */
+    private static String filename(Path file) {
+        Objects.requireNonNull(file, "file");
+        String filename = file.toString();
+        if (!filename.isEmpty() && isVipsSpace(filename.charAt(filename.length() - 1))) {
+            throw new IllegalArgumentException("file names ending in white space are not supported: " + file);
+        }
+        return filename;
+    }
+
+    /** The characters libvips's tokenizer skips as white space ({@code strspn(p, " \t\n\r")}). */
+    private static boolean isVipsSpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
     }
 
     private Image load(VipsRuntime r, String loader, String source, Object input, LoadOptions options) {

@@ -2,6 +2,10 @@ package org.sitenetsoft.quarkus.libvips.internal;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.ref.Cleaner;
+import java.util.List;
+import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -93,6 +97,57 @@ public final class NativeImage implements AutoCloseable {
     /** {@return {@code vips_image_hasalpha}} */
     public boolean hasAlpha() {
         return use(LibvipsNative::hasAlpha);
+    }
+
+    /** {@return {@code vips_image_get_orientation}} */
+    public int orientation() {
+        return use(LibvipsNative::orientation);
+    }
+
+    /** {@return the nick of {@code vips_image_get_interpretation}, such as {@code srgb}} */
+    public String interpretation() {
+        return use(i -> LibvipsNative.enumNick(LibvipsNative.interpretationType(), LibvipsNative.interpretation(i)));
+    }
+
+    /** {@return the names of every header field} */
+    public List<String> fields() {
+        return use(LibvipsNative::fields);
+    }
+
+    /**
+     * {@return any header field as text ({@code vips_image_get_as_string}); empty when absent}
+     *
+     * @param name the field name
+     */
+    public Optional<String> field(String name) {
+        return use(i -> LibvipsNative.asString(i, name));
+    }
+
+    /**
+     * {@return an {@code int} header field; empty when absent or of another type}
+     *
+     * @param name the field name
+     */
+    public OptionalInt intField(String name) {
+        return use(i -> LibvipsNative.intField(i, name));
+    }
+
+    /**
+     * {@return a {@code double} (or {@code int}) header field; empty when absent or of another type}
+     *
+     * @param name the field name
+     */
+    public OptionalDouble doubleField(String name) {
+        return use(i -> LibvipsNative.doubleField(i, name));
+    }
+
+    /**
+     * {@return a copy of a blob header field; empty when absent or of another type}
+     *
+     * @param name the field name
+     */
+    public Optional<byte[]> blobField(String name) {
+        return use(i -> LibvipsNative.blobField(i, name));
     }
 
     /** {@return whether {@link #close} has run (or the cleaner released the image)} */

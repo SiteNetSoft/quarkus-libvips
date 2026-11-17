@@ -860,6 +860,15 @@ public final class LibvipsNative {
     /** {@code GParamSpec}: 72 bytes on LP64, then the bounds of {@code GParamSpecInt} / {@code GParamSpecDouble}. */
     private static final long PSPEC_VALUE_TYPE = 24, PSPEC_MIN = 72, PSPEC_INT_MAX = 76, PSPEC_DOUBLE_MAX = 80;
 
+    /** {@return the maximum of an {@code int} argument's {@code GParamSpecInt}; empty for any other type} */
+    static OptionalInt intMaximum(ArgumentSpec spec) {
+        MemorySegment p = spec.pspec().reinterpret(88);
+        if (fundamental(p.get(JAVA_LONG, PSPEC_VALUE_TYPE)) != G_TYPE_INT) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(p.get(JAVA_INT, PSPEC_INT_MAX));
+    }
+
     /** Why a value failed validation, with the bounds of an int or double argument. */
     private static String invalid(MemorySegment pspec) {
         MemorySegment p = pspec.reinterpret(88);

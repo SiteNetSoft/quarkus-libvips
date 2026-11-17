@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.libvips.internal;
 import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import org.sitenetsoft.quarkus.libvips.LibvipsException;
 import org.sitenetsoft.quarkus.libvips.VipsEnum;
@@ -96,13 +97,24 @@ public final class Operation implements AutoCloseable {
     }
 
     /**
+     * {@return the maximum of an {@code int} argument as libvips reports it (on libvips 8.18 the coordinate limits
+     * follow {@code VIPS_MAX_COORD}); empty when there is no such argument or it is not an {@code int}}
+     *
+     * @param name the argument name
+     */
+    public OptionalInt intMaximum(String name) {
+        return spec(name).map(LibvipsNative::intMaximum).orElse(OptionalInt.empty());
+    }
+
+    /**
      * Validates and sets an input argument.
      *
      * @param name the argument name
      * @param value the value (see the class description for the accepted Java types)
      * @return this operation
-     * @throws IllegalArgumentException when the name is unknown, the argument is not an input or is deprecated, or
-     *         the value does not fit its type
+     * @throws IllegalArgumentException when the name is unknown; the argument is not an input, is deprecated or is
+     *         modified in place ({@code VIPS_ARGUMENT_MODIFY}, refused); the value does not fit its type; or the value
+     *         is outside the {@code GParamSpec}'s range ({@code g_param_value_validate})
      * @throws IllegalStateException when the operation has been built or closed
      */
     public Operation set(String name, Object value) {
