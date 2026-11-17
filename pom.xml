@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" child.project.url.inherit.append.path="false" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.sitenetsoft</groupId>
+  <artifactId>quarkus-libvips-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>libvips - Parent</name>
+  <description>Quarkus extension for image processing with libvips through Java FFM</description>
+  <url>https://github.com/SiteNetSoft/quarkus-libvips</url>
+  <licenses>
+    <license>
+      <name>The Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>jnbdz</id>
+      <name>Jean-Nicolas Boulay Desjardins</name>
+      <organization>SiteNetSoft</organization>
+      <organizationUrl>https://github.com/SiteNetSoft</organizationUrl>
+    </developer>
+  </developers>
+  <scm child.scm.connection.inherit.append.path="false" child.scm.developerConnection.inherit.append.path="false" child.scm.url.inherit.append.path="false">
+    <connection>scm:git:https://github.com/SiteNetSoft/quarkus-libvips.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/SiteNetSoft/quarkus-libvips.git</developerConnection>
+    <url>https://github.com/SiteNetSoft/quarkus-libvips</url>
+  </scm>
+
+  <modules>
+    <module>runtime</module>
+    <module>deployment</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.release>25</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <quarkus.version>3.40.1</quarkus.version>
+    <assertj.version>3.27.7</assertj.version>
+    <compiler-plugin.version>3.15.0</compiler-plugin.version>
+    <surefire-plugin.version>3.6.0</surefire-plugin.version>
+    <source-plugin.version>3.4.0</source-plugin.version>
+    <javadoc-plugin.version>3.12.0</javadoc-plugin.version>
+    <!-- fork JVMs run C1 only; FFM downcalls are restricted operations -->
+    <test.argLine>-Djava.util.logging.manager=org.jboss.logmanager.LogManager -XX:TieredStopAtLevel=1 --enable-native-access=ALL-UNNAMED</test.argLine>
+    <!-- empty default so @{argLine} resolves where nothing (e.g. the Quarkus Maven extension) sets it -->
+    <argLine></argLine>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>${quarkus.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-maven-plugin</artifactId>
+          <version>${quarkus.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-extension-maven-plugin</artifactId>
+          <version>${quarkus.version}</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${compiler-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire-plugin.version}</version>
+          <configuration>
+            <argLine>@{argLine} ${test.argLine}</argLine>
+            <environmentVariables>
+              <!-- libvips starts one worker thread per core by default; two keep tests light and deterministic -->
+              <VIPS_CONCURRENCY>2</VIPS_CONCURRENCY>
+            </environmentVariables>
+            <systemPropertyVariables>
+              <maven.home>${maven.home}</maven.home>
+              <!-- random port: under -T 4 several modules run Quarkus tests at once -->
+              <quarkus.http.test-port>0</quarkus.http.test-port>
+            </systemPropertyVariables>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${surefire-plugin.version}</version>
+          <configuration>
+            <argLine>@{argLine} ${test.argLine}</argLine>
+            <environmentVariables>
+              <!-- libvips starts one worker thread per core by default; two keep tests light and deterministic -->
+              <VIPS_CONCURRENCY>2</VIPS_CONCURRENCY>
+            </environmentVariables>
+            <systemPropertyVariables>
+              <maven.home>${maven.home}</maven.home>
+              <quarkus.http.test-port>0</quarkus.http.test-port>
+            </systemPropertyVariables>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>${source-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${javadoc-plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

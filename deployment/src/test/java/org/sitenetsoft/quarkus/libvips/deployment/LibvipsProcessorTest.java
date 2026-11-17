@@ -1,0 +1,17 @@
+package org.sitenetsoft.quarkus.libvips.deployment;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+
+/**
+ * The processor in isolation (no application: the class is package-private, so it is tested from the same class
+ * loader).
+ */
+class LibvipsProcessorTest {
+
+    @Test
+    void featureName() {
+        assertThat(new LibvipsProcessor().feature().getName()).isEqualTo("libvips");
+    }
+}

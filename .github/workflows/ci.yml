@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Install libvips
+        run: |
+          sudo apt-get update
+          # Ubuntu 24.04 renamed the package for the 64-bit time_t transition; the AV1 plugin is for AVIF saving
+          sudo apt-get install -y libvips42t64 libheif-plugin-aomenc || sudo apt-get install -y libvips42 libheif-plugin-aomenc
+          lib="$(ldconfig -p | awk '/libvips\.so\.42 / { print $NF; exit }')"
+          [ -n "$lib" ] || { echo "::error::libvips.so.42 not found after install"; exit 1; }
+          dpkg -l | awk '/libvips42|libheif/ { print $2, $3 }'
+          echo "QUARKUS_LIBVIPS_LIBRARY=$lib" >> "$GITHUB_ENV"
+          echo "LIBVIPS_EXPECT_AVIF=true" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: mvn -B -ntp -T 4 verify
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 7

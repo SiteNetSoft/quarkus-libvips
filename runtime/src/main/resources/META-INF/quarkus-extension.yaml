@@ -1,0 +1,17 @@
+name: "libvips"
+description: "Image processing for Quarkus with libvips through Java FFM"
+artifactId: "quarkus-libvips"
+metadata:
+  keywords:
+    - "image"
+    - "libvips"
+    - "vips"
+    - "thumbnail"
+    - "webp"
+    - "avif"
+  categories:
+    - "miscellaneous"
+  status: "experimental"
+  config:
+    - "quarkus.libvips."
+  guide: "https://sitenetsoft.org/quarkus-libvips/"
