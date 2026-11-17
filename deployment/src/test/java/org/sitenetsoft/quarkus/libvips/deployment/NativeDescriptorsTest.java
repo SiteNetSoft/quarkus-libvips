@@ -44,8 +44,8 @@ class NativeDescriptorsTest {
         assertThat(registered).as("no shape registered that no function uses").isEqualTo(linked);
         assertThat(LibvipsProcessor.DOWNCALLS).as("one item per distinct shape").hasSize(linked.size())
                 .doesNotHaveDuplicates();
-        // 83 functions in 29 shapes today; a new function either reuses a shape or adds one here
-        assertThat(LibvipsNative.DOWNCALLS).hasSize(83);
+        // 84 functions in 29 shapes today; a new function either reuses a shape or adds one here
+        assertThat(LibvipsNative.DOWNCALLS).hasSize(84);
         assertThat(linked).hasSize(29);
     }
 

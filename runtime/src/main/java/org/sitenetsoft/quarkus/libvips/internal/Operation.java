@@ -40,9 +40,15 @@ import org.sitenetsoft.quarkus.libvips.VipsEnum;
  * <p>
  * {@code system}, {@code globalbalance} and {@code remosaic} are never created (see {@link #create}).
  * <p>
- * References: {@link #build()} returns a {@link Built} that holds a new reference to the built operation (often a
- * different, cached object); this operation's own reference is dropped then, on success and on failure. An operation
- * never built drops its reference on {@link #close()}.
+ * References: through the cache, {@link #build()} returns a {@link Built} holding a new reference to the built
+ * operation (often a different, cached object) and drops this operation's own reference; outside the cache (see
+ * below) the {@link Built} takes over this operation's reference instead. On failure the outputs and this reference
+ * are dropped. An operation never built drops its reference on {@link #close()}.
+ * <p>
+ * Caching: an operation is built through libvips's operation cache, except a loader ({@code VipsForeignLoad}) and an
+ * operation given a {@code byte[]}. Those keep the caller's data alive for as long as they live (a native copy of the
+ * whole input, or the pixels decoded from a file, which could also have changed on disk since), so they are built
+ * with {@code vips_object_build} and freed as soon as their outputs are.
  * <p>
  * Callers bracket the whole sequence with {@link VipsRuntime#enter()} / {@link VipsRuntime#exit()}.
  */
@@ -71,6 +77,7 @@ public final class Operation implements AutoCloseable {
     private final String nickname;
     private final MemorySegment op;
     private boolean built;
+    private boolean holdsCallerData;
 
     private Operation(String nickname, MemorySegment op) {
         this.nickname = nickname;
@@ -293,6 +300,7 @@ public final class Operation implements AutoCloseable {
             });
         } else if (fundamental == LibvipsNative.G_TYPE_BOXED && LibvipsNative.typeIsA(type, LibvipsNative.blobType())) {
             LibvipsNative.setBlobCopy(op, name, expect(name, type, value, byte[].class));
+            holdsCallerData = true;
         } else if (fundamental == LibvipsNative.G_TYPE_BOXED
                 && LibvipsNative.typeIsA(type, LibvipsNative.arrayDoubleType())) {
             LibvipsNative.setArrayDouble(op, name, expect(name, type, value, double[].class));
@@ -303,8 +311,9 @@ public final class Operation implements AutoCloseable {
     }
 
     /**
-     * Builds the operation through libvips's operation cache. This operation's reference is dropped whatever the
-     * outcome; on failure its outputs are dropped too.
+     * Builds the operation, through libvips's operation cache unless it is a loader or holds a {@code byte[]} (see the
+     * class description). This operation's reference is handed to the result or dropped; on failure its outputs are
+     * dropped too.
      *
      * @return the built operation, to read outputs from and close
      * @throws LibvipsException when the build fails, with libvips's error text
@@ -315,15 +324,27 @@ public final class Operation implements AutoCloseable {
             throw new IllegalStateException(nickname + " has been built");
         }
         built = true;
+        if (holdsCallerData || LibvipsNative.typeFind("VipsForeignLoad", nickname) != 0) {
+            // libvips's own path for a nocache operation (vips_cache_operation_buildp): build in place, add nothing
+            if (LibvipsNative.objectBuild(op) != 0) {
+                throw failed();
+            }
+            return new Built(nickname, op); // takes over this reference
+        }
         MemorySegment result = LibvipsNative.cacheOperationBuild(op);
         if (result.equals(MemorySegment.NULL)) {
-            String detail = ErrorBuffer.take();
-            LibvipsNative.unrefOutputs(op);
-            LibvipsNative.unref(op);
-            throw new LibvipsException(nickname, detail);
+            throw failed();
         }
         LibvipsNative.unref(op);
         return new Built(nickname, result);
+    }
+
+    /** After a failed build: takes the error text, drops the outputs and this reference. */
+    private LibvipsException failed() {
+        String detail = ErrorBuffer.take();
+        LibvipsNative.unrefOutputs(op);
+        LibvipsNative.unref(op);
+        return new LibvipsException(nickname, detail);
     }
 
     /** Drops the reference of an operation that was never built; idempotent. */

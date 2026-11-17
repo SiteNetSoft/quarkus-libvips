@@ -79,11 +79,18 @@ public interface LibvipsConfig {
     interface Cache {
 
         /**
-         * Operation cache entries ({@code vips_cache_set_max}).
+         * Operation cache entries ({@code vips_cache_set_max}); {@code 0}, the default, turns the cache off.
+         * <p>
+         * Off by default because a cached operation keeps its input images alive, and an image loaded from bytes keeps
+         * the whole native copy of those bytes. Every transform of an upload, and the operations libvips runs inside a
+         * thumbnail, would hold the upload until evicted, and that memory is not counted by {@code max-memory}, so
+         * only this entry count bounds it. The extension's own loads are never cached, but with the cache on, the
+         * loader libvips runs inside a thumbnail from bytes is, and it keeps the upload. Turn the cache on for
+         * applications that repeat the same work on the same images, and size it with uploads in mind.
          *
          * @return the maximum number of cached operations
          */
-        @WithDefault("100")
+        @WithDefault("0")
         int maxOperations();
 
         /**

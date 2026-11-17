@@ -162,6 +162,7 @@ public final class LibvipsNative {
         fixed(m, "vips_operation_new", FunctionDescriptor.of(ADDRESS, ADDRESS));
         fixed(m, "vips_operation_get_flags", FunctionDescriptor.of(JAVA_INT, ADDRESS));
         fixed(m, "vips_cache_operation_build", FunctionDescriptor.of(ADDRESS, ADDRESS));
+        fixed(m, "vips_object_build", FunctionDescriptor.of(JAVA_INT, ADDRESS)); // int (VipsObject *), 0 on success
         fixed(m, "vips_object_unref_outputs", FunctionDescriptor.ofVoid(ADDRESS));
         // int (VipsObject *, const char *, GParamSpec **, VipsArgumentClass **, VipsArgumentInstance **)
         fixed(m, "vips_object_get_argument",
@@ -388,6 +389,14 @@ public final class LibvipsNative {
      */
     static MemorySegment cacheOperationBuild(MemorySegment op) {
         return pointerToPointer("vips_cache_operation_build", op);
+    }
+
+    /**
+     * {@code vips_object_build}: builds {@code op} itself, outside the operation cache: nothing keeps it once the
+     * caller drops its reference. 0 on success; on failure libvips leaves error text.
+     */
+    static int objectBuild(MemorySegment op) {
+        return pointerToInt("vips_object_build", op);
     }
 
     static void unrefOutputs(MemorySegment op) {

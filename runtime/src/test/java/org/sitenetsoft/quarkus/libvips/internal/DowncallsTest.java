@@ -40,7 +40,7 @@ class DowncallsTest {
             "vips_blob_get_type", "vips_array_double_get_type", "vips_interpretation_get_type", "vips_blob_copy",
             "vips_blob_get", "vips_area_unref", "vips_value_set_array_double", "vips_enum_from_nick",
             "vips_flags_from_nick", "vips_enum_nick", "vips_type_find", "vips_operation_get_type", "vips_operation_new",
-            "vips_operation_get_flags", "vips_cache_operation_build", "vips_object_unref_outputs",
+            "vips_operation_get_flags", "vips_cache_operation_build", "vips_object_build", "vips_object_unref_outputs",
             "vips_object_get_argument", "vips_object_get_argument_flags", "vips_image_get_width",
             "vips_image_get_height", "vips_image_get_bands", "vips_image_get_n_pages", "vips_image_get_page_height",
             "vips_image_get_orientation", "vips_image_get_interpretation", "vips_image_hasalpha",
@@ -121,6 +121,7 @@ class DowncallsTest {
         m.put("vips_operation_new", FunctionDescriptor.of(P, P)); // VipsOperation * (const char *)
         m.put("vips_operation_get_flags", FunctionDescriptor.of(I, P)); // VipsOperationFlags (VipsOperation *)
         m.put("vips_cache_operation_build", FunctionDescriptor.of(P, P)); // VipsOperation * (VipsOperation *)
+        m.put("vips_object_build", FunctionDescriptor.of(I, P)); // int (VipsObject *)
         m.put("vips_object_unref_outputs", FunctionDescriptor.ofVoid(P)); // void (VipsObject *)
         // int (VipsObject *, const char *, GParamSpec **, VipsArgumentClass **, VipsArgumentInstance **)
         m.put("vips_object_get_argument", FunctionDescriptor.of(I, P, P, P, P, P));
@@ -148,7 +149,7 @@ class DowncallsTest {
 
     @Test
     void everyDescriptorMatchesTheHeaders() {
-        assertThat(EXPECTED).hasSize(83);
+        assertThat(EXPECTED).hasSize(84);
         assertThat(EXPECTED.keySet()).isEqualTo(C_FUNCTIONS);
         EXPECTED.forEach((symbol, fd) -> assertThat(LibvipsNative.DOWNCALLS.get(symbol).descriptor()).as(symbol)
                 .isEqualTo(fd));
@@ -156,7 +157,7 @@ class DowncallsTest {
 
     @Test
     void exactlyTheCApi() {
-        assertThat(C_FUNCTIONS).hasSize(83);
+        assertThat(C_FUNCTIONS).hasSize(84);
         assertThat(LibvipsNative.DOWNCALLS.keySet()).containsExactlyInAnyOrderElementsOf(C_FUNCTIONS);
         LibvipsNative.DOWNCALLS.forEach((k, d) -> assertThat(d.symbol()).isEqualTo(k));
     }

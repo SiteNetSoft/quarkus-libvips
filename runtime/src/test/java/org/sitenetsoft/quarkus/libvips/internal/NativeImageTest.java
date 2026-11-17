@@ -102,7 +102,7 @@ class NativeImageTest {
 
     @Test
     void cachedCallsLeaveTheOutputWithOneReferenceForUsAndOneForTheCache() {
-        VipsRuntime runtime = VipsRuntime.start(Settings.defaults());
+        VipsRuntime runtime = VipsRuntime.start(Settings.defaults().withCacheMaxOperations(100)); // off by default
         NativeImage input = black(runtime);
         try {
             for (int n = 0; n < 10; n++) {

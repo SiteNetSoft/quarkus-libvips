@@ -133,7 +133,7 @@ class VipsRuntimeTest {
 
     @Test
     void stopEmptiesTheOperationCacheAndKeepsItsLimit() {
-        VipsRuntime r = VipsRuntime.start(Settings.defaults());
+        VipsRuntime r = VipsRuntime.start(Settings.defaults().withCacheMaxOperations(100)); // off by default
         MemorySegment op = LibvipsNative.operationNew("black");
         LibvipsNative.setInt(op, "width", 8);
         LibvipsNative.setInt(op, "height", 8);

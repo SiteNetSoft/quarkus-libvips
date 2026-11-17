@@ -37,7 +37,7 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
 
     /** {@return the defaults of the run-time configuration} */
     public static Settings defaults() {
-        return new Settings(Optional.empty(), OptionalInt.empty(), 100, 52428800, 20, 268402689, 134217728,
+        return new Settings(Optional.empty(), OptionalInt.empty(), 0, 52428800, 20, 268402689, 134217728,
                 FailOn.NONE, true, List.of(), List.of());
     }
 
@@ -59,6 +59,16 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
     public Settings withConcurrency(int concurrency) {
         return new Settings(library, OptionalInt.of(concurrency), cacheMaxOperations, cacheMaxMemory, cacheMaxFiles,
                 maxInputPixels, maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations);
+    }
+
+    /**
+     * {@return a copy with another operation cache size}
+     *
+     * @param cacheMaxOperations {@code vips_cache_set_max}; {@code 0} turns the cache off
+     */
+    public Settings withCacheMaxOperations(int cacheMaxOperations) {
+        return new Settings(library, concurrency, cacheMaxOperations, cacheMaxMemory, cacheMaxFiles, maxInputPixels,
+                maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations);
     }
 
     /**
