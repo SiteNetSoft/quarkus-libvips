@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.libvips;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import jakarta.inject.Singleton;
 
@@ -221,6 +222,64 @@ public class Libvips {
                 ErrorBuffer.take();
             }
             return loader;
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * {@return the class name of the buffer saver libvips registers for a file suffix, such as
+     * {@code VipsForeignSaveWebpBuffer} for {@code .webp}; empty when none} This is a suffix lookup only: {@code .avif}
+     * finds nothing, because libvips's HEIF saver declares {@code .heic} and {@code .heif}; {@link Image#save} does not
+     * use it, each {@link SaveOptions} names its own saver. libvips splits a trailing {@code [options]} off the suffix
+     * here, but only a class name comes back, so no option reaches any saver.
+     *
+     * @param suffix a file suffix such as {@code .webp}, or a file name ending in one
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Optional<String> saverFor(String suffix) {
+        Objects.requireNonNull(suffix, "suffix");
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            Optional<String> saver = r.findSaveBuffer(suffix);
+            if (saver.isEmpty()) {
+                ErrorBuffer.take(); // "... is not a known buffer format": the empty result says it
+            }
+            return saver;
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * {@return every file suffix some libvips saver accepts, such as {@code .jpg} or {@code .webp}}
+     *
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public Set<String> saveSuffixes() {
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            return Set.copyOf(r.saveSuffixes());
+        } finally {
+            r.exit();
+        }
+    }
+
+    /**
+     * {@return whether this libvips has the operation, such as {@code heifsave_buffer}} An optional format is present
+     * only when libvips was built with its library.
+     *
+     * @param nickname the operation's nickname (or concrete class name)
+     * @throws LibvipsUnavailableException when libvips is unavailable
+     */
+    public boolean hasOperation(String nickname) {
+        Objects.requireNonNull(nickname, "nickname");
+        VipsRuntime r = runtime();
+        r.enter();
+        try {
+            return r.hasOperation(nickname);
         } finally {
             r.exit();
         }

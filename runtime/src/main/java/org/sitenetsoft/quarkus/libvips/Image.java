@@ -291,6 +291,45 @@ public final class Image implements AutoCloseable {
         });
     }
 
+    /**
+     * Encodes the image with the saver {@code options} names. Pixels are computed now, so an input that loaded but
+     * is damaged fails here.
+     *
+     * @param options the format and its settings, such as {@link SaveOptions#webp(int)}
+     * @return the encoded image
+     * @throws UnsupportedFormatException ({@link UnsupportedFormatException.Reason#NO_SAVER}) naming the saver when
+     *         this libvips does not have it
+     * @throws LibvipsException naming the saver when encoding fails, including a saver that exists but is blocked or
+     *         lacks its encoder plugin (such as libheif without an AV1 encoder)
+     * @throws IllegalStateException when this image is closed
+     */
+    public byte[] save(SaveOptions options) {
+        Objects.requireNonNull(options, "options");
+        String saver = options.operation();
+        Map<String, Object> arguments = switch (options) {
+            case SaveOptions.Jpeg o -> o.arguments();
+            case SaveOptions.Png o -> o.arguments();
+            case SaveOptions.Webp o -> o.arguments();
+            case SaveOptions.Avif o -> o.arguments();
+        };
+        VipsRuntime runtime = libvips.runtime();
+        runtime.enter();
+        try {
+            if (!runtime.hasOperation(saver)) {
+                throw new UnsupportedFormatException(saver, "", UnsupportedFormatException.Reason.NO_SAVER);
+            }
+            try (Operation op = Operation.create(saver)) {
+                op.set("in", image);
+                arguments.forEach(op::set);
+                try (Operation.Built built = op.build()) {
+                    return built.blob("buffer");
+                }
+            }
+        } finally {
+            runtime.exit();
+        }
+    }
+
     /** Releases the image; idempotent and thread-safe. */
     @Override
     public void close() {

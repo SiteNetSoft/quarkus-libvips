@@ -335,6 +335,45 @@ public final class VipsRuntime {
     }
 
     /**
+     * {@return whether libvips has the operation ({@code vips_type_find}); false for an abstract class}
+     *
+     * @param operation a nickname or class name
+     */
+    public boolean hasOperation(String operation) {
+        enter();
+        try {
+            return LibvipsNative.typeFind(OPERATION, operation) != 0;
+        } finally {
+            exit();
+        }
+    }
+
+    /**
+     * {@return the buffer saver class name for a suffix, empty when none} libvips leaves error text when there is
+     * none; the caller takes it.
+     *
+     * @param suffix a file suffix such as {@code .webp}
+     */
+    public Optional<String> findSaveBuffer(String suffix) {
+        enter();
+        try {
+            return LibvipsNative.findSaveBuffer(suffix);
+        } finally {
+            exit();
+        }
+    }
+
+    /** {@return every suffix some saver accepts ({@code vips_foreign_get_suffixes})} */
+    public List<String> saveSuffixes() {
+        enter();
+        try {
+            return LibvipsNative.saveSuffixes();
+        } finally {
+            exit();
+        }
+    }
+
+    /**
      * {@return whether {@code operation} is a {@code VipsForeign} loader or saver}
      *
      * @param operation a nickname or class name
