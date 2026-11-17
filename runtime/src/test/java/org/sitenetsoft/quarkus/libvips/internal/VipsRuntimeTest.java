@@ -2,6 +2,7 @@ package org.sitenetsoft.quarkus.libvips.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -77,6 +78,18 @@ class VipsRuntimeTest {
         VipsRuntime r = VipsRuntime.start(Settings.defaults());
         assertThat(r.isBlocked("pngload_buffer")).isFalse();
         assertThat(r.effective().concurrency()).isEqualTo(2); // VIPS_CONCURRENCY=2 from the wrapper/surefire
+    }
+
+    @Test
+    void heifLoadBlockedIsRecordedAtStart() { // read by every health probe: no operation is created per call
+        VipsRuntime r = VipsRuntime.start(Settings.defaults());
+        assumeTrue(LibvipsNative.typeFind("VipsOperation", "heifload_buffer") != 0,
+                "no HEIF loader in this libvips");
+        boolean atStart = r.isBlocked("heifload_buffer");
+        assertThat(r.heifLoadBlocked()).isEqualTo(atStart);
+        LibvipsNative.operationBlockSet("VipsForeignLoadHeif", !atStart); // undone by restore()
+        assertThat(r.isBlocked("heifload_buffer")).isEqualTo(!atStart);
+        assertThat(r.heifLoadBlocked()).isEqualTo(atStart);
     }
 
     @Test

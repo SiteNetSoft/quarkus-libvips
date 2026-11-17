@@ -38,6 +38,8 @@ public final class VipsRuntime {
     static final String DEFAULT_CONCURRENCY_PROPERTY = "org.sitenetsoft.quarkus.libvips.default-concurrency";
 
     private static final String OPERATION = "VipsOperation";
+    /** The HEIF/AVIF loader whose block state the status reports. */
+    private static final String HEIF_LOAD = "heifload_buffer";
 
     /** The class of libvips's {@code system} operation, which runs a shell command. */
     static final String SYSTEM = "VipsSystem";
@@ -58,16 +60,19 @@ public final class VipsRuntime {
     private final Version version;
     private final String library;
     private final Settings settings;
+    private final boolean heifLoadBlocked;
     private final AtomicLong inFlight = new AtomicLong();
     private final AtomicLong openImages = new AtomicLong();
     private final AtomicLong leakedImages = new AtomicLong();
     private volatile boolean stopped;
 
-    private VipsRuntime(Optional<String> failure, Version version, String library, Settings settings) {
+    private VipsRuntime(Optional<String> failure, Version version, String library, Settings settings,
+            boolean heifLoadBlocked) {
         this.failure = failure;
         this.version = version;
         this.library = library;
         this.settings = settings;
+        this.heifLoadBlocked = heifLoadBlocked;
     }
 
     /**
@@ -109,7 +114,9 @@ public final class VipsRuntime {
         // libvips does not mark system untrusted, but it runs a shell command: blocked last, on every start, so no
         // allowed entry (VipsOperation unblocks every subclass) and no earlier start can leave it runnable
         LibvipsNative.operationBlockSet(SYSTEM, true);
-        return new VipsRuntime(Optional.empty(), version, loaded.library(), settings);
+        // block state changes only at start: read once here, not per health probe
+        boolean heifLoadBlocked = blocked(HEIF_LOAD);
+        return new VipsRuntime(Optional.empty(), version, loaded.library(), settings, heifLoadBlocked);
     }
 
     /**
@@ -118,7 +125,7 @@ public final class VipsRuntime {
      * @param reason why libvips is unavailable
      */
     public static VipsRuntime unavailable(String reason) {
-        return new VipsRuntime(Optional.of(reason), null, null, null);
+        return new VipsRuntime(Optional.of(reason), null, null, null, false);
     }
 
     /** libvips's default concurrency, read once per process before the first setting. */
@@ -231,26 +238,34 @@ public final class VipsRuntime {
                 }
                 return false;
             }
-            MemorySegment op = LibvipsNative.operationNew(operation);
-            if (op.equals(MemorySegment.NULL)) {
-                return false;
-            }
-            try {
-                return (LibvipsNative.operationGetFlags(op) & LibvipsNative.VIPS_OPERATION_BLOCKED) != 0;
-            } finally {
-                LibvipsNative.unref(op);
-            }
+            return blocked(operation);
         } finally {
             exit();
         }
     }
 
+    /** {@return whether the operation, a nickname or concrete class name, is blocked; false when libvips lacks it} */
+    private static boolean blocked(String operation) {
+        if (LibvipsNative.typeFind(OPERATION, operation) == 0) {
+            return false;
+        }
+        MemorySegment op = LibvipsNative.operationNew(operation);
+        if (op.equals(MemorySegment.NULL)) {
+            return false;
+        }
+        try {
+            return (LibvipsNative.operationGetFlags(op) & LibvipsNative.VIPS_OPERATION_BLOCKED) != 0;
+        } finally {
+            LibvipsNative.unref(op);
+        }
+    }
+
     /**
      * {@return whether reading HEIF/AVIF is blocked} libvips marks its HEIF loader untrusted only in some builds; false
-     * when libvips has no HEIF loader.
+     * when libvips has no HEIF loader. Recorded at start, when the block state is applied.
      */
     public boolean heifLoadBlocked() {
-        return isBlocked("heifload_buffer");
+        return heifLoadBlocked;
     }
 
     /** {@return the bytes libvips has allocated through its tracked allocator} */

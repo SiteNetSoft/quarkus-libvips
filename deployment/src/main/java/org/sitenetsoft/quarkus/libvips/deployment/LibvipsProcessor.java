@@ -8,6 +8,9 @@ import org.sitenetsoft.quarkus.libvips.LibvipsRecorder;
 
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanContainerBuildItem;
+import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
+import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
@@ -15,6 +18,7 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.ServiceStartBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
 
 /**
  * Build steps of the libvips extension.
@@ -23,6 +27,8 @@ class LibvipsProcessor {
 
     /** Name of the extension feature. */
     static final String FEATURE = "libvips";
+    /** The readiness check, by name: loading the class would need the health API, which is optional. */
+    static final String HEALTH_CHECK = "org.sitenetsoft.quarkus.libvips.health.LibvipsHealthCheck";
 
     /** Create the processor. */
     LibvipsProcessor() {
@@ -77,5 +83,20 @@ class LibvipsProcessor {
             LaunchModeBuildItem launchMode) {
         recorder.init(beans.getValue(), shutdown, launchMode.getLaunchMode());
         return new ServiceStartBuildItem(FEATURE);
+    }
+
+    /**
+     * Register the readiness check when the application has {@code quarkus-smallrye-health}; it is left out when
+     * {@code quarkus.libvips.health.enabled} is false.
+     *
+     * @param config the build-time configuration
+     * @param capabilities the application's capabilities
+     * @param health the health check producer
+     */
+    @BuildStep(onlyIf = IsEnabled.class)
+    void health(LibvipsBuildTimeConfig config, Capabilities capabilities, BuildProducer<HealthBuildItem> health) {
+        if (capabilities.isPresent(Capability.SMALLRYE_HEALTH)) {
+            health.produce(new HealthBuildItem(HEALTH_CHECK, config.health().enabled()));
+        }
     }
 }
