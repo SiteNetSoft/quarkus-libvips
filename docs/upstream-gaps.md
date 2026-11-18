@@ -149,10 +149,11 @@ variadic calls (gap 10).
 - **Gap:** a `byte[]` or heap `MemorySegment` argument is copied into memory freed when the call returns; libvips then
   decodes freed memory (in our test: `VipsJpeg: Not a JPEG file: starts with 0x4d 0x65`). Documented behaviour for
   the copy, but nothing at the declaration warns or prevents it.
-- **Workaround:** the extension never hands libvips memory it does not own. An input `byte[]` is copied into a
-  native segment of a per-call confined arena, then `vips_blob_copy` copies it into memory libvips owns; the blob is
-  set on the operation as a `GValue` and the arena closes when the call returns. libvips's blob lives as long as
-  the operation and the images derived from it. That costs one extra copy and works the same with SmallRye FFM.
+- **Workaround:** the extension never hands libvips memory it does not own. An input `byte[]` is copied once into
+  memory from `g_try_malloc`, which `vips_blob_new` takes over with `g_free` (its symbol address, no upcall) as the
+  free function; the blob is set on the operation as a `GValue`. libvips's blob lives as long as the operation and the
+  images derived from it, and frees the copy once. That works the same with SmallRye FFM (`g_free`'s address as a
+  `MemorySegment` argument).
 - **Ask:** smallrye/smallrye-ffm#83 (text: `docs/upstream/smallrye-ffm-issue-heap-copy-retained.md`): document it;
   an opt-out annotation that rejects heap data.
 

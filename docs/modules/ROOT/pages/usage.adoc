@@ -188,11 +188,54 @@ boolean blocked = libvips.isBlocked("ppmload");
 * `status()` returns the version, library, effective settings and counters (what the health check reports); it never
   throws.
 
+[[threads]]
 == Threads
 
 `Libvips` is thread-safe. An `Image` may be read and transformed from several threads at once. Closing an image while
 another thread uses it is a bug in the caller, but a safe one: the other thread's next call throws
 `IllegalStateException`, and the native image is released only when the last call using it returns.
+
+[[event-loops]]
+=== Event loops
+
+libvips decodes, transforms and encodes on the calling thread, and a large upload takes tens of milliseconds to
+seconds. The methods that do that work refuse to run on a Vert.x event loop (an I/O thread), the way Quarkus's own
+blocking APIs (Hibernate ORM's session, for one) do: they throw Quarkus's `BlockingOperationNotAllowedException`
+naming the method, before libvips is called. That covers `Libvips.load`, `loaderFor`, `thumbnail`, and on `Image`
+`call`, `autorotate`, `thumbnail`, `resize`, `crop`, `smartCrop`, `iccImport`, `iccTransform` and `save`.
+
+What only reads state runs anywhere: the `Image` header reads (`width()` to `iccProfile()`), `close()`, and on
+`Libvips` `isAvailable()`, `version()`, `library()`, `status()` (the health check), the counters, `hasOperation`,
+`isBlocked`, `saverFor` and `saveSuffixes`.
+
+Run image work on the worker pool:
+
+* Quarkus REST: an endpoint that returns a plain value (`byte[]`, `Response`, an entity) already runs on a worker
+  thread. One that returns `Uni` or `Multi`, or a reactive route, runs on the event loop: annotate it with
+  `@Blocking`.
+* Vert.x code: `vertx.executeBlocking(() -> ...)`.
+* Mutiny: switch the pipeline before the call with `emitOn(Infrastructure.getDefaultWorkerPool())`, or wrap the call
+  with `Uni.createFrom().item(() -> ...).runSubscriptionOn(Infrastructure.getDefaultWorkerPool())`.
+
+Virtual threads (`@RunOnVirtualThread`) are allowed but not recommended for this: a libvips call is a native call,
+which pins the virtual thread to its carrier thread for the whole call, and image work is CPU-bound and can take
+seconds, so a few large uploads would hold every carrier. The worker pool is sized for blocking work.
+
+[source,java]
+----
+@POST
+@Path("/thumbnail")
+@Blocking // the method returns a Uni, so it would otherwise run on the event loop
+public Uni<byte[]> thumbnail(byte[] upload) {
+    try (Image thumbnail = libvips.thumbnail(upload, 800, ThumbnailOptions.DEFAULT)) {
+        return Uni.createFrom().item(thumbnail.save(SaveOptions.webp(80)));
+    }
+}
+----
+
+Outside a Quarkus application (plain unit tests) every thread may block and nothing is refused.
+
+=== libvips worker threads
 
 libvips also runs its own worker threads inside each pipeline: `quarkus.libvips.concurrency` sets how many (libvips's
 default is the `VIPS_CONCURRENCY` environment variable, else one per processor). On a server handling many uploads at
@@ -209,7 +252,8 @@ failed:
 
 |`LimitExceededException`
 |The input is larger than `limits.max-input-size`, or its header declares more pixels than `limits.max-input-pixels`;
-`actual()` and `limit()` give the numbers. Thrown before any pixel is decoded.
+`actual()` and `limit()` give the numbers. Thrown before any pixel is decoded. Also an output larger than a Java byte
+array can hold (about 2 GiB, `operation()` `output-size`), refused before it is copied.
 
 |`UnsupportedFormatException`
 |`NO_LOADER`: no loader accepts the input (empty, unknown or blocked format, or a missing file). `NO_SAVER`: this
@@ -237,7 +281,25 @@ byte[] safeThumbnail(byte[] upload) {
 }
 ----
 
+A call on a Vert.x event loop throws Quarkus's `BlockingOperationNotAllowedException` instead (see
+<<event-loops>>); it is not a `LibvipsException`.
+
 Exception messages are fixed text naming the operation and the kind of failure. `detail()` carries libvips's error
 text, for logs only: it can name host paths and is best-effort under concurrency, so never return it to a client (see
 xref:security.adoc#errors-under-concurrency[Errors under concurrency]). Invalid arguments (out-of-range sizes or
 qualities, a closed image) are `IllegalArgumentException` and `IllegalStateException`, thrown before libvips runs.
+
+[[leak-check]]
+== Leak check
+
+To find images that are never closed, or memory libvips keeps, set `quarkus.libvips.leak-check=true` in dev or test
+mode (for example `%test.quarkus.libvips.leak-check=true`, and run the whole test suite). libvips then runs its own
+leak checks (`vips_leak_set`), and when the application stops the extension logs one line: INFO
+`libvips leak check: no leaks; ...` when everything was released, else a WARN with the images still open, the images
+the cleaner released because they were never closed, and the pixel memory and files libvips still tracks. libvips
+lists any of its objects still alive on standard error. In production the key is ignored with a warning: the checks
+cost time and the report is a diagnostic.
+
+Once on, libvips keeps checking until the JVM exits, even after a dev-mode restart or a later test application
+without the key: libvips cannot switch its own checks off safely while images from the checked period may still be
+alive. Only the extension's report follows the key. Set it for a whole dev session or test run.

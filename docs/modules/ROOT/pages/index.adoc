@@ -37,17 +37,18 @@ byte[] webpThumbnail(byte[] upload) {
     }
 }
 ----
-. Run the packaged application with `--enable-native-access=ALL-UNNAMED` (dev mode and native executables need
-  nothing): see xref:native.adoc[Native image and native access].
+. Call it from a worker thread, never from a Vert.x event loop: see xref:usage.adoc#threads[Threads]. The packaged
+  application, dev mode and native executables need no JVM flag; tests need `--enable-native-access=ALL-UNNAMED`
+  (see xref:native.adoc[Native image and native access]).
 
 == Contents
 
-* xref:installation.adoc[Installation]: packages, where the library is looked for, container images, running
-  without libvips.
-* xref:usage.adoc[Usage]: the API, closing images, thread safety, the generic operation call, errors.
+* xref:installation.adoc[Installation]: packages, where the library is looked for, container images, the memory
+  allocator, running without libvips.
+* xref:usage.adoc[Usage]: the API, closing images, threads and event loops, the generic operation call, errors.
 * xref:security.adoc[Security and limits]: blocked operations, HEIF/AVIF reading, limits, `fail-on`, file names,
   errors under concurrency, the health check.
-* xref:native.adoc[Native image and native access]: what the extension registers, and the JVM flag.
+* xref:native.adoc[Native image and native access]: what the extension registers, and native access.
 * xref:configuration.adoc[Configuration reference]: every key and its default.
 
 == Bindings
@@ -57,3 +58,6 @@ every libvips operation is built through its `GValue` properties. The SmallRye F
 library once a release can be linked into a native image; what it lacks for libvips today, and the issues filed, are
 listed in
 https://github.com/SiteNetSoft/quarkus-libvips/blob/master/docs/upstream-gaps.md[docs/upstream-gaps.md].
+
+For plain Java applications without Quarkus, https://github.com/lopcode/vips-ffm[vips-ffm] binds libvips through
+the same API.

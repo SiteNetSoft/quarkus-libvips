@@ -5,19 +5,21 @@ include::includes/attributes.adoc[]
 == Native access (JVM and dev mode)
 
 The extension reaches libvips through the Foreign Function & Memory API: opening the library and creating downcall
-handles are _restricted_ operations. On JDK 25 a JVM without `--enable-native-access=ALL-UNNAMED` prints a warning on
-the first one (a later JDK may refuse instead). Add the flag to every JVM that runs the application:
+handles are _restricted_ operations. On JDK 25 a JVM that has not enabled native access prints a warning on the first
+one (a later JDK may refuse instead).
 
-[source,bash]
-----
-java --enable-native-access=ALL-UNNAMED -jar target/quarkus-app/quarkus-run.jar
-----
+The packaged application needs nothing: the extension has Quarkus write `Enable-Native-Access: ALL-UNNAMED` into the
+manifest of `quarkus-run.jar` (the default fast-jar) and of an uber-jar, which `java -jar` honours like the flag.
+Dev mode needs nothing either (the extension's metadata starts `quarkus:dev` with the flag), nor does a native
+executable.
 
-In a container image built from the Quarkus Dockerfiles, add it to `JAVA_OPTS_APPEND`. Tests: add it to the Surefire
-and Failsafe `argLine`.
+Add `--enable-native-access=ALL-UNNAMED` yourself only where no such manifest is read:
 
-Dev mode needs nothing: the extension's metadata makes `quarkus:dev` start the application with the flag. A native
-executable needs nothing either.
+* tests: the Surefire and Failsafe `argLine` (`@QuarkusTest` runs in the test JVM);
+* an application started from a class path rather than with `java -jar` on the runner jar.
+
+An `Enable-Native-Access` entry in `quarkus.package.jar.manifest.attributes` is not needed; Quarkus sets the entry
+itself.
 
 == Native image
 
@@ -39,7 +41,8 @@ fails at run time. The extension registers:
 `int`, `long` for `size_t` and `GType`, `double`). The bindings keep every function's `FunctionDescriptor` in one map;
 the deployment module derives the registration from that same map at build time, so a function added to the bindings
 is registered with it and the two cannot drift. A unit test checks every function has its shape registered. No call is variadic: every libvips operation is built through its `GValue` properties, so no
-option list needs a shape of its own. No upcalls.
+option list needs a shape of its own. No upcalls: an uploaded array is copied once into GLib memory that libvips
+frees with `g_free`, whose own address is passed as the free function.
 
 |Runtime-initialized classes
 |The internal classes that hold native state in static fields: the linked method handles and symbols

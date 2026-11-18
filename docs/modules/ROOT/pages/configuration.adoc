@@ -82,6 +82,13 @@ processor).
 |run
 |unset
 |Operations to unblock after the blocks, in the same forms. `system` cannot be allowed.
+
+|`quarkus.libvips.leak-check`
+|run
+|`false`
+|Dev and test mode only: libvips's leak checks on, and a leak report logged when the application stops (see
+xref:usage.adoc#leak-check[Leak check]). Ignored, with a warning, in production. Once on, libvips keeps checking
+until the JVM exits.
 |===
 
 libvips's settings are process-wide: every application start sets all of them, so in a JVM that starts several
