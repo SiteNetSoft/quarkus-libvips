@@ -44,15 +44,18 @@ class NativeDescriptorsTest {
         assertThat(registered).as("no shape registered that no function uses").isEqualTo(linked);
         assertThat(LibvipsProcessor.DOWNCALLS).as("one item per distinct shape").hasSize(linked.size())
                 .doesNotHaveDuplicates();
-        // 85 functions in 29 shapes today; a new function either reuses a shape or adds one here
-        assertThat(LibvipsNative.DOWNCALLS).hasSize(85);
-        assertThat(linked).hasSize(29);
+        // 91 functions in 30 shapes today; a new function either reuses a shape or adds one here
+        assertThat(LibvipsNative.DOWNCALLS).hasSize(91);
+        assertThat(linked).hasSize(30);
     }
 
     @Test
     void knownSignatures() {
         // spot checks against the C headers: size_t and GType are jlong (LP64), gboolean is jint
-        assertThat(shape(LibvipsNative.DOWNCALLS.get("vips_blob_copy").descriptor())).isEqualTo("void*(void*,jlong)");
+        assertThat(shape(LibvipsNative.DOWNCALLS.get("vips_blob_new").descriptor()))
+                .isEqualTo("void*(void*,void*,jlong)");
+        assertThat(shape(LibvipsNative.DOWNCALLS.get("vips_foreign_find_load_buffer").descriptor()))
+                .isEqualTo("void*(void*,jlong)");
         assertThat(shape(LibvipsNative.DOWNCALLS.get("g_value_set_double").descriptor()))
                 .isEqualTo("void(void*,jdouble)");
         assertThat(shape(LibvipsNative.DOWNCALLS.get("g_param_value_validate").descriptor()))

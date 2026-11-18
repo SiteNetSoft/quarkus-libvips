@@ -32,6 +32,14 @@ class LibvipsProcessorTest {
     }
 
     @Test
+    void nativeAccessIsEnabledForTheExtensionWhenEnabled() throws NoSuchMethodException {
+        assertThat(new LibvipsProcessor().nativeAccess().moduleName()).isEqualTo("org.sitenetsoft.quarkus.libvips");
+        assertThat(LibvipsProcessor.class.getDeclaredMethod("nativeAccess")
+                .getAnnotation(io.quarkus.deployment.annotations.BuildStep.class).onlyIf())
+                .containsExactly(LibvipsProcessor.IsEnabled.class);
+    }
+
+    @Test
     void noHealthCheckWithoutTheHealthExtension() {
         assertThat(health(Set.of(), true)).isEmpty();
     }

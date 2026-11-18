@@ -10,6 +10,7 @@ import java.util.Set;
 
 import jakarta.inject.Singleton;
 
+import org.sitenetsoft.quarkus.libvips.internal.Blocking;
 import org.sitenetsoft.quarkus.libvips.internal.ErrorBuffer;
 import org.sitenetsoft.quarkus.libvips.internal.Operation;
 import org.sitenetsoft.quarkus.libvips.internal.VipsRuntime;
@@ -17,6 +18,13 @@ import org.sitenetsoft.quarkus.libvips.internal.VipsRuntime;
 /**
  * libvips in this application. With {@code quarkus.libvips.required=false} the application may run without it:
  * {@link #isAvailable()} tells, and every image call then throws {@link LibvipsUnavailableException}.
+ * <p>
+ * libvips works on the calling thread. The methods that load, sniff or thumbnail an image throw
+ * {@link io.quarkus.runtime.BlockingOperationNotAllowedException} on an I/O thread (a Vert.x event loop); call them
+ * from a worker thread ({@code @Blocking}, {@code executeBlocking}, or Mutiny's
+ * {@code emitOn(Infrastructure.getDefaultWorkerPool())}). The state and introspection methods ({@link #status()},
+ * {@link #version()}, {@link #hasOperation}, {@link #isBlocked}, {@link #saverFor}, {@link #saveSuffixes()} and the
+ * counters) run anywhere.
  */
 @Singleton
 public class Libvips {
@@ -138,6 +146,7 @@ public class Libvips {
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Image load(byte[] data, LoadOptions options) {
+        Blocking.check("Libvips.load");
         Objects.requireNonNull(data, "data");
         Objects.requireNonNull(options, "options");
         if (data.length == 0) {
@@ -189,6 +198,7 @@ public class Libvips {
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Image load(Path file, LoadOptions options) {
+        Blocking.check("Libvips.load");
         Objects.requireNonNull(file, "file");
         Objects.requireNonNull(options, "options");
         String filename = filename(file);
@@ -213,6 +223,7 @@ public class Libvips {
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Optional<String> loaderFor(byte[] data) {
+        Blocking.check("Libvips.loaderFor");
         Objects.requireNonNull(data, "data");
         VipsRuntime r = runtime();
         if (data.length == 0) {
@@ -240,6 +251,7 @@ public class Libvips {
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Optional<String> loaderFor(Path file) {
+        Blocking.check("Libvips.loaderFor");
         String filename = filename(file);
         VipsRuntime r = runtime();
         r.enter();
@@ -346,6 +358,7 @@ public class Libvips {
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Image thumbnail(byte[] data, int width, ThumbnailOptions options) {
+        Blocking.check("Libvips.thumbnail");
         Objects.requireNonNull(data, "data");
         Objects.requireNonNull(options, "options");
         if (data.length == 0) {
@@ -398,6 +411,7 @@ public class Libvips {
      * @throws LibvipsUnavailableException when libvips is unavailable
      */
     public Image thumbnail(Path file, int width, ThumbnailOptions options) {
+        Blocking.check("Libvips.thumbnail");
         Objects.requireNonNull(options, "options");
         try (Image source = load(file, HEADER_PROBE)) {
             return source.thumbnail(width, options);

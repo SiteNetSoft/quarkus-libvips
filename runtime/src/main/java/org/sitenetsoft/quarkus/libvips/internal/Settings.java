@@ -21,10 +21,11 @@ import org.sitenetsoft.quarkus.libvips.FailOn;
  * @param blockUntrusted {@code vips_block_untrusted_set}
  * @param blockedOperations operations to block (nicknames or class names)
  * @param allowedOperations operations to unblock afterwards (nicknames or class names)
+ * @param leakCheck {@code vips_leak_set}, and a leak report when the runtime stops
  */
 public record Settings(Optional<String> library, OptionalInt concurrency, int cacheMaxOperations, long cacheMaxMemory,
         int cacheMaxFiles, long maxInputPixels, long maxInputSize, FailOn failOn, boolean blockUntrusted,
-        List<String> blockedOperations, List<String> allowedOperations) {
+        List<String> blockedOperations, List<String> allowedOperations, boolean leakCheck) {
 
     /** Copies the lists and checks for {@code null}. */
     public Settings {
@@ -38,7 +39,7 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
     /** {@return the defaults of the run-time configuration} */
     public static Settings defaults() {
         return new Settings(Optional.empty(), OptionalInt.empty(), 0, 52428800, 20, 268402689, 134217728,
-                FailOn.NONE, true, List.of(), List.of());
+                FailOn.NONE, true, List.of(), List.of(), false);
     }
 
     /**
@@ -48,7 +49,8 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
      */
     public Settings withLibrary(String library) {
         return new Settings(Optional.of(library), concurrency, cacheMaxOperations, cacheMaxMemory, cacheMaxFiles,
-                maxInputPixels, maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations);
+                maxInputPixels, maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations,
+                leakCheck);
     }
 
     /**
@@ -58,7 +60,8 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
      */
     public Settings withConcurrency(int concurrency) {
         return new Settings(library, OptionalInt.of(concurrency), cacheMaxOperations, cacheMaxMemory, cacheMaxFiles,
-                maxInputPixels, maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations);
+                maxInputPixels, maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations,
+                leakCheck);
     }
 
     /**
@@ -68,7 +71,8 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
      */
     public Settings withCacheMaxOperations(int cacheMaxOperations) {
         return new Settings(library, concurrency, cacheMaxOperations, cacheMaxMemory, cacheMaxFiles, maxInputPixels,
-                maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations);
+                maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations,
+                leakCheck);
     }
 
     /**
@@ -79,7 +83,8 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
      */
     public Settings withLimits(long maxInputPixels, long maxInputSize) {
         return new Settings(library, concurrency, cacheMaxOperations, cacheMaxMemory, cacheMaxFiles, maxInputPixels,
-                maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations);
+                maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations,
+                leakCheck);
     }
 
     /**
@@ -91,6 +96,16 @@ public record Settings(Optional<String> library, OptionalInt concurrency, int ca
      */
     public Settings withSecurity(boolean blockUntrusted, List<String> blocked, List<String> allowed) {
         return new Settings(library, concurrency, cacheMaxOperations, cacheMaxMemory, cacheMaxFiles, maxInputPixels,
-                maxInputSize, failOn, blockUntrusted, blocked, allowed);
+                maxInputSize, failOn, blockUntrusted, blocked, allowed, leakCheck);
+    }
+
+    /**
+     * {@return a copy with leak checking on or off}
+     *
+     * @param leakCheck {@code vips_leak_set}, and a leak report when the runtime stops
+     */
+    public Settings withLeakCheck(boolean leakCheck) {
+        return new Settings(library, concurrency, cacheMaxOperations, cacheMaxMemory, cacheMaxFiles, maxInputPixels,
+                maxInputSize, failOn, blockUntrusted, blockedOperations, allowedOperations, leakCheck);
     }
 }

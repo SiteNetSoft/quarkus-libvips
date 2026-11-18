@@ -14,9 +14,11 @@
   <properties>
     <maven.deploy.skip>true</maven.deploy.skip>
     <skipITs>true</skipITs>
-    <!-- JVM flags for the packaged application in JVM mode: FFM downcalls are restricted operations; C1 only.
+    <!-- JVM flags for the packaged application in JVM mode: C1 only, and illegal native access denied rather than
+         warned about. No enable-native-access flag: the extension puts Enable-Native-Access into quarkus-run.jar's
+         manifest; without it the application could not open libvips (NativeAccessIT).
          Empty in the native profile: the launcher passes these arguments to the native executable too. -->
-    <it.arg-line>--enable-native-access=ALL-UNNAMED -XX:TieredStopAtLevel=1</it.arg-line>
+    <it.arg-line>-XX:TieredStopAtLevel=1 --illegal-native-access=deny</it.arg-line>
   </properties>
 
   <dependencies>

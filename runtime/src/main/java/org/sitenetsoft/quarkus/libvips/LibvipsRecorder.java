@@ -48,7 +48,7 @@ public class LibvipsRecorder {
         Libvips libvips = beans.beanInstance(Libvips.class);
         VipsRuntime runtime;
         try {
-            runtime = VipsRuntime.start(settings(cfg));
+            runtime = VipsRuntime.start(settings(cfg, mode));
         } catch (RuntimeException | LinkageError e) {
             String reason = reason(e);
             if (cfg.required()) {
@@ -64,9 +64,9 @@ public class LibvipsRecorder {
         shutdown.addShutdownTask(() -> runtime.stop(shutdownLibrary));
         VipsRuntime.Effective e = runtime.effective();
         LOG.infof("libvips %s (%s): concurrency %d, cache %d operations / %d bytes / %d files, block-untrusted %s, "
-                + "heif-load-blocked %s", runtime.version(), runtime.library(), e.concurrency(),
+                + "heif-load-blocked %s%s", runtime.version(), runtime.library(), e.concurrency(),
                 e.cacheMaxOperations(), e.cacheMaxMemory(), e.cacheMaxFiles(), runtime.settings().blockUntrusted(),
-                runtime.heifLoadBlocked());
+                runtime.heifLoadBlocked(), runtime.leakCheck() ? ", leak-check on" : "");
     }
 
     /**
@@ -84,12 +84,29 @@ public class LibvipsRecorder {
      * {@return the configuration in plain values} Memory sizes become bytes; {@code 0} stays "no limit".
      *
      * @param cfg the run-time configuration
+     * @param mode the launch mode ({@code leak-check} is ignored in production)
      */
-    static Settings settings(LibvipsConfig cfg) {
+    static Settings settings(LibvipsConfig cfg, LaunchMode mode) {
         return new Settings(cfg.library(), cfg.concurrency(), cfg.cache().maxOperations(),
                 cfg.cache().maxMemory().asLongValue(), cfg.cache().maxFiles(), cfg.limits().maxInputPixels(),
                 cfg.limits().maxInputSize().asLongValue(), cfg.failOn(), cfg.security().blockUntrusted(),
                 cfg.security().blockedOperations().orElse(List.of()),
-                cfg.security().allowedOperations().orElse(List.of()));
+                cfg.security().allowedOperations().orElse(List.of()), leakCheck(cfg.leakCheck(), mode));
+    }
+
+    /**
+     * {@return whether leak checking runs} Only in dev and test mode: in production ({@link LaunchMode#NORMAL}) a
+     * configured {@code quarkus.libvips.leak-check} is ignored with a warning rather than failing the start, as it is a
+     * diagnostic.
+     *
+     * @param configured {@code quarkus.libvips.leak-check}
+     * @param mode the launch mode
+     */
+    static boolean leakCheck(boolean configured, LaunchMode mode) {
+        if (configured && mode == LaunchMode.NORMAL) {
+            LOG.warn("quarkus.libvips.leak-check is for dev and test mode; it is ignored in production");
+            return false;
+        }
+        return configured;
     }
 }

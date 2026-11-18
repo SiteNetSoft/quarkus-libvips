@@ -9,6 +9,7 @@ import java.util.OptionalInt;
 import java.util.TreeMap;
 import java.util.function.Consumer;
 
+import org.sitenetsoft.quarkus.libvips.internal.Blocking;
 import org.sitenetsoft.quarkus.libvips.internal.NativeImage;
 import org.sitenetsoft.quarkus.libvips.internal.Operation;
 import org.sitenetsoft.quarkus.libvips.internal.VipsRuntime;
@@ -22,6 +23,11 @@ import org.sitenetsoft.quarkus.libvips.internal.VipsRuntime;
  * becomes unreachable and counted in {@link Libvips#leakedImages()}; that is a safety net, not a way to manage memory.
  * <p>
  * An image may be read from several threads at once.
+ * <p>
+ * The transforms, {@link #call} and {@link #save} run libvips on the calling thread and throw
+ * {@link io.quarkus.runtime.BlockingOperationNotAllowedException} on an I/O thread (a Vert.x event loop); call them
+ * from a worker thread. The header reads ({@link #width()} to {@link #iccProfile()}) and {@link #close()} run anywhere:
+ * they read the header libvips already holds and never compute pixels.
  */
 public final class Image implements AutoCloseable {
 
@@ -85,6 +91,7 @@ public final class Image implements AutoCloseable {
      * @throws IllegalStateException when this image or an argument image is closed
      */
     public Image call(String operation, Map<String, Object> arguments) {
+        Blocking.check("Image.call");
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(arguments, "arguments");
         VipsRuntime runtime = libvips.runtime();
@@ -190,6 +197,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException when the operation fails
      */
     public Image autorotate() {
+        Blocking.check("Image.autorotate");
         return derive("autorot", op -> {
         });
     }
@@ -207,6 +215,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException when the operation fails
      */
     public Image thumbnail(int width, ThumbnailOptions options) {
+        Blocking.check("Image.thumbnail");
         Objects.requireNonNull(options, "options");
         return derive("thumbnail_image", op -> {
             op.set("width", width);
@@ -223,6 +232,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException when the operation fails
      */
     public Image resize(double scale) {
+        Blocking.check("Image.resize");
         return derive("resize", op -> op.set("scale", scale));
     }
 
@@ -238,6 +248,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException naming {@code extract_area} when the rectangle is not inside the image
      */
     public Image crop(int left, int top, int width, int height) {
+        Blocking.check("Image.crop");
         return derive("extract_area", op -> {
             op.set("left", left);
             op.set("top", top);
@@ -258,6 +269,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException when the operation fails
      */
     public Image smartCrop(int width, int height, Interesting interesting) {
+        Blocking.check("Image.smartCrop");
         Objects.requireNonNull(interesting, "interesting");
         return derive("smartcrop", op -> {
             op.set("width", width);
@@ -273,6 +285,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException when the operation fails
      */
     public Image iccImport() {
+        Blocking.check("Image.iccImport");
         return derive("icc_import", op -> op.set("embedded", true));
     }
 
@@ -289,6 +302,7 @@ public final class Image implements AutoCloseable {
      * @throws LibvipsException when the operation fails
      */
     public Image iccTransform(String outputProfile, Intent intent) {
+        Blocking.check("Image.iccTransform");
         Objects.requireNonNull(outputProfile, "outputProfile");
         Objects.requireNonNull(intent, "intent");
         return derive("icc_transform", op -> {
@@ -308,9 +322,12 @@ public final class Image implements AutoCloseable {
      *         this libvips does not have it
      * @throws LibvipsException naming the saver when encoding fails, including a saver that exists but is blocked or
      *         lacks its encoder plugin (such as libheif without an AV1 encoder)
+     * @throws LimitExceededException ({@link LimitExceededException#OUTPUT_SIZE}) when the encoded image is larger
+     *         than a Java byte array can hold (about 2 GiB)
      * @throws IllegalStateException when this image is closed
      */
     public byte[] save(SaveOptions options) {
+        Blocking.check("Image.save");
         Objects.requireNonNull(options, "options");
         String saver = options.operation();
         Map<String, Object> arguments = switch (options) {

@@ -75,6 +75,19 @@ public interface LibvipsConfig {
      */
     Security security();
 
+    /**
+     * Leak checking, for development and tests: turns on libvips's own checks ({@code vips_leak_set}) and, when the
+     * application stops, logs what is still alive: images never closed, and the pixel memory and files libvips still
+     * tracks (WARN when anything is left, INFO otherwise); libvips lists any objects still alive on standard error.
+     * Ignored, with a warning, in production (the packaged application), where the checks only cost time. Once on,
+     * libvips keeps checking until the JVM exits, even after a restart without it (only the report follows the
+     * setting), so set it for a whole dev session or test run.
+     *
+     * @return true to check for leaks
+     */
+    @WithDefault("false")
+    boolean leakCheck();
+
     /** The libvips operation cache. */
     interface Cache {
 

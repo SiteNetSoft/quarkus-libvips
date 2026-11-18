@@ -33,6 +33,15 @@ public final class TestLibvips {
         return libvips;
     }
 
+    /**
+     * {@return the runtime {@code libvips} is attached to}
+     *
+     * @param libvips a started {@link Libvips}
+     */
+    public static VipsRuntime runtime(Libvips libvips) {
+        return libvips.runtime();
+    }
+
     /** {@return the bytes of {@code portrait.jpg}} (400×300, EXIF orientation 6, embedded sRGB profile) */
     public static byte[] portrait() {
         try (InputStream in = Objects.requireNonNull(TestLibvips.class.getResourceAsStream("/portrait.jpg"))) {

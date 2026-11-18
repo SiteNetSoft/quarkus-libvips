@@ -23,6 +23,10 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.SequencedMap;
+import java.util.function.LongFunction;
+
+import org.sitenetsoft.quarkus.libvips.LimitExceededException;
+import org.sitenetsoft.quarkus.libvips.Version;
 
 /**
  * The libvips C API through {@code java.lang.foreign}: every C descriptor and method handle of the extension.
@@ -37,7 +41,9 @@ import java.util.SequencedMap;
  * {@code JAVA_INT}; {@code size_t} and {@code GType} {@code JAVA_LONG}; {@code double} {@code JAVA_DOUBLE}.
  * <p>
  * Every wrapper that allocates uses its own confined arena, closed when the call returns; native memory that libvips
- * returns is copied to Java and freed with the matching GLib or libvips function before the wrapper returns.
+ * returns is copied to Java and freed with the matching GLib or libvips function before the wrapper returns. The one
+ * exception goes the other way: an input array is copied once into GLib memory that is handed to libvips
+ * ({@code vips_blob_new} with {@code g_free}), see {@link #setBlob(MemorySegment, String, byte[])}.
  */
 public final class LibvipsNative {
 
@@ -109,11 +115,18 @@ public final class LibvipsNative {
         fixed(m, "vips_block_untrusted_set", FunctionDescriptor.ofVoid(JAVA_INT)); // gboolean
         fixed(m, "vips_operation_block_set", FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT)); // (const char *, gboolean)
         fixed(m, "vips_tracked_get_mem", FunctionDescriptor.of(JAVA_LONG)); // size_t
+        fixed(m, "vips_tracked_get_mem_highwater", FunctionDescriptor.of(JAVA_LONG)); // size_t
+        fixed(m, "vips_tracked_get_allocs", FunctionDescriptor.of(JAVA_INT));
+        fixed(m, "vips_tracked_get_files", FunctionDescriptor.of(JAVA_INT));
+        fixed(m, "vips_leak_set", FunctionDescriptor.ofVoid(JAVA_INT)); // void (gboolean)
+        // object.h: prints the objects still alive (beyond libvips's static ones) to stderr
+        fixed(m, "vips_object_print_all", FunctionDescriptor.ofVoid());
         // error.h
         fixed(m, "vips_error_buffer_copy", FunctionDescriptor.of(ADDRESS)); // char * (g_free), clears the buffer
         fixed(m, "vips_error_clear", FunctionDescriptor.ofVoid());
         // glib / gobject
         fixed(m, "g_free", FunctionDescriptor.ofVoid(ADDRESS));
+        fixed(m, "g_try_malloc", FunctionDescriptor.of(ADDRESS, JAVA_LONG)); // gpointer (gsize), NULL on failure
         fixed(m, "g_strfreev", FunctionDescriptor.ofVoid(ADDRESS));
         fixed(m, "g_object_ref", FunctionDescriptor.of(ADDRESS, ADDRESS));
         fixed(m, "g_object_unref", FunctionDescriptor.ofVoid(ADDRESS));
@@ -149,7 +162,8 @@ public final class LibvipsNative {
         fixed(m, "vips_blob_get_type", FunctionDescriptor.of(JAVA_LONG));
         fixed(m, "vips_array_double_get_type", FunctionDescriptor.of(JAVA_LONG));
         fixed(m, "vips_interpretation_get_type", FunctionDescriptor.of(JAVA_LONG));
-        fixed(m, "vips_blob_copy", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG)); // (const void *, size_t)
+        // VipsBlob * (VipsCallbackFn free_fn, const void *data, size_t length): takes ownership of data
+        fixed(m, "vips_blob_new", FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS, JAVA_LONG));
         fixed(m, "vips_blob_get", FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS)); // (VipsBlob *, size_t *)
         fixed(m, "vips_area_unref", FunctionDescriptor.ofVoid(ADDRESS));
         // void (GValue *, const double *, int n)
@@ -195,8 +209,11 @@ public final class LibvipsNative {
         return Collections.unmodifiableSequencedMap(m);
     }
 
-    /** The lookup the handles were linked from, and the handles by symbol. */
-    private record Bound(SymbolLookup lookup, Map<String, MethodHandle> handles) {
+    /**
+     * The lookup the handles were linked from, the handles by symbol, and the address of {@code g_free}, which
+     * {@code vips_blob_new} calls (as a {@code VipsCallbackFn}) to free an input it was handed.
+     */
+    private record Bound(SymbolLookup lookup, Map<String, MethodHandle> handles, MemorySegment gFree) {
     }
 
     private static volatile Bound bound;
@@ -227,7 +244,7 @@ public final class LibvipsNative {
         Map<String, MethodHandle> handles = new LinkedHashMap<>();
         DOWNCALLS.forEach((symbol, d) -> handles.put(symbol,
                 linker.downcallHandle(addresses.get(symbol), d.descriptor(), d.options())));
-        bound = new Bound(lib, Collections.unmodifiableMap(handles));
+        bound = new Bound(lib, Collections.unmodifiableMap(handles), addresses.get("g_free"));
     }
 
     /** {@return whether {@link #bind(SymbolLookup)} has linked the handles in this class loader} */
@@ -250,6 +267,23 @@ public final class LibvipsNative {
     static int init(String argv0) {
         try (Arena a = Arena.ofConfined()) {
             return (int) h("vips_init").invokeExact(a.allocateFrom(argv0));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /**
+     * {@return the version of the library {@code vipsVersion} belongs to, before anything is bound} The one handle
+     * linked outside {@link #bind(SymbolLookup)}, with the registered {@code vips_version} descriptor:
+     * {@code vips_version} only returns compiled-in numbers, so it is safe before {@code vips_init}, and the loader
+     * checks the version before binding everything.
+     *
+     * @param vipsVersion the address of {@code vips_version} in a library not bound yet
+     */
+    static Version versionOf(MemorySegment vipsVersion) {
+        MethodHandle h = Linker.nativeLinker().downcallHandle(vipsVersion, DOWNCALLS.get("vips_version").descriptor());
+        try {
+            return new Version((int) h.invokeExact(0), (int) h.invokeExact(1), (int) h.invokeExact(2));
         } catch (Throwable t) {
             throw rethrow(t);
         }
@@ -318,6 +352,31 @@ public final class LibvipsNative {
 
     static int cacheGetMaxFiles() {
         return intResult("vips_cache_get_max_files");
+    }
+
+    /**
+     * {@code vips_leak_set(TRUE)}: leak checking, and libvips's own report at {@code vips_shutdown}. There is
+     * deliberately no way to pass {@code FALSE} (see {@code VipsRuntime}).
+     */
+    static void leakOn() {
+        intArg("vips_leak_set", 1);
+    }
+
+    static long trackedGetMemHighwater() {
+        return longResult("vips_tracked_get_mem_highwater");
+    }
+
+    static int trackedGetAllocs() {
+        return intResult("vips_tracked_get_allocs");
+    }
+
+    static int trackedGetFiles() {
+        return intResult("vips_tracked_get_files");
+    }
+
+    /** {@code vips_object_print_all}: lists the objects still alive on stderr; prints nothing when there are none. */
+    static void objectPrintAll() {
+        voidCall("vips_object_print_all");
     }
 
     static void blockUntrustedSet(boolean state) {
@@ -565,20 +624,69 @@ public final class LibvipsNative {
     }
 
     /**
-     * Sets a {@code VipsBlob} argument holding a copy of {@code data}. Two native copies are made: the Java array
-     * into this call's arena, then {@code vips_blob_copy} into memory libvips owns, so nothing libvips keeps points
-     * into memory Java frees.
+     * Sets a {@code VipsBlob} argument holding a copy of {@code data}: one native copy, in memory from
+     * {@code g_try_malloc} that libvips owns from then on and frees with {@code g_free} when the last reference to the
+     * blob goes (the operation's, and a loaded image's, which reads its input lazily). Nothing libvips keeps points
+     * into memory Java frees, and no upcall is involved: {@code g_free}'s own address is the free function.
+     *
+     * @throws OutOfMemoryError when the native memory cannot be allocated
      */
-    static void setBlobCopy(MemorySegment op, String name, byte[] data) {
+    static void setBlob(MemorySegment op, String name, byte[] data) {
+        setBlob(op, name, data, gFreeAddress(), LibvipsNative::tryMalloc);
+    }
+
+    /**
+     * {@link #setBlob(MemorySegment, String, byte[])} with the free function and the allocator given, so that tests
+     * can count frees and fail an allocation. {@code freeFn} must free memory from {@code malloc}.
+     */
+    static void setBlob(MemorySegment op, String name, byte[] data, MemorySegment freeFn,
+            LongFunction<MemorySegment> malloc) {
         set(op, name, blobType(), (gv, a) -> {
-            MemorySegment copy = a.allocateFrom(JAVA_BYTE, data);
-            MemorySegment blob = (MemorySegment) h("vips_blob_copy").invokeExact(copy, (long) data.length);
+            MemorySegment blob = newBlob(data, freeFn, malloc);
             try {
-                h("g_value_set_boxed").invokeExact(gv, blob);
+                h("g_value_set_boxed").invokeExact(gv, blob); // the GValue takes its own reference
             } finally {
                 h("vips_area_unref").invokeExact(blob);
             }
         });
+    }
+
+    /**
+     * {@return a new {@code VipsBlob} (one reference, the caller's) owning a native copy of {@code data}} Until
+     * {@code vips_blob_new} returns, the memory is this method's to free; from then on the blob frees it with
+     * {@code freeFn}. An empty array becomes a blob without data, which frees nothing.
+     */
+    private static MemorySegment newBlob(byte[] data, MemorySegment freeFn, LongFunction<MemorySegment> malloc)
+            throws Throwable {
+        long length = data.length;
+        if (length == 0) {
+            return (MemorySegment) h("vips_blob_new").invokeExact(NULL, NULL, 0L);
+        }
+        MemorySegment memory = malloc.apply(length);
+        if (memory.equals(NULL)) {
+            throw new OutOfMemoryError("native memory for a " + length + "-byte input could not be allocated");
+        }
+        try {
+            MemorySegment.copy(data, 0, memory.reinterpret(length), JAVA_BYTE, 0, data.length);
+            return (MemorySegment) h("vips_blob_new").invokeExact(freeFn, memory, length);
+        } catch (Throwable t) {
+            gFree(memory);
+            throw t;
+        }
+    }
+
+    /** {@code g_try_malloc}: {@code NULL} when the memory cannot be allocated (where {@code g_malloc} aborts). */
+    static MemorySegment tryMalloc(long size) {
+        try {
+            return (MemorySegment) h("g_try_malloc").invokeExact(size);
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /** {@return the address of {@code g_free} in the bound library, the free function of every input blob} */
+    static MemorySegment gFreeAddress() {
+        return bound().gFree();
     }
 
     static void setArrayDouble(MemorySegment op, String name, double[] values) {
@@ -953,7 +1061,19 @@ public final class LibvipsNative {
         }
     }
 
-    private static byte[] copy(MemorySegment data, long length) {
+    /** The largest native output copied into a {@code byte[]}: {@code MemorySegment.toArray} refuses more. */
+    static final long MAX_OUTPUT_BYTES = Integer.MAX_VALUE - 8;
+
+    /**
+     * {@return a Java copy of {@code length} bytes at {@code data}}
+     *
+     * @throws LimitExceededException ({@link LimitExceededException#OUTPUT_SIZE}) when {@code length} is more than
+     *         {@link #MAX_OUTPUT_BYTES} (or a {@code size_t} above {@code Long.MAX_VALUE}); nothing is read then
+     */
+    static byte[] copy(MemorySegment data, long length) {
+        if (length < 0 || length > MAX_OUTPUT_BYTES) {
+            throw new LimitExceededException(LimitExceededException.OUTPUT_SIZE, length, MAX_OUTPUT_BYTES);
+        }
         if (length == 0) {
             return new byte[0];
         }

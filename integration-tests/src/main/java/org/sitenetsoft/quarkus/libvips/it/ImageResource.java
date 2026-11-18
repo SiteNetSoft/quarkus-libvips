@@ -26,6 +26,18 @@ public class ImageResource {
     Libvips libvips;
 
     /**
+     * Tells whether the JVM enabled native access for the extension's module (the class path's unnamed module).
+     *
+     * @return {@code true} or {@code false}
+     */
+    @GET
+    @Path("/native-access")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String nativeAccess() {
+        return Boolean.toString(Libvips.class.getModule().isNativeAccessEnabled());
+    }
+
+    /**
      * Thumbnails an uploaded image into a box, cropping the centre, and encodes it.
      *
      * @param body the encoded image

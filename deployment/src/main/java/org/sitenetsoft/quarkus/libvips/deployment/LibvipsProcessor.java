@@ -22,6 +22,7 @@ import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
+import io.quarkus.deployment.builditem.ModuleEnableNativeAccessBuildItem;
 import io.quarkus.deployment.builditem.ServiceStartBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.FfmDowncallBuildItem;
@@ -92,6 +93,22 @@ class LibvipsProcessor {
             ShutdownContextBuildItem shutdown, LaunchModeBuildItem launchMode) {
         recorder.init(beans.getValue(), shutdown, launchMode.getLaunchMode());
         return new ServiceStartBuildItem(FEATURE);
+    }
+
+    /** The extension's module name, for {@link ModuleEnableNativeAccessBuildItem} (it runs on the class path). */
+    static final String MODULE = "org.sitenetsoft.quarkus.libvips";
+
+    /**
+     * Enable native access for the packaged application: Quarkus writes {@code Enable-Native-Access: ALL-UNNAMED}
+     * into the manifest of {@code quarkus-run.jar} and of an uber-jar, so {@code java -jar} needs no
+     * {@code --enable-native-access} flag. The FFM downcalls and the library lookup are restricted methods; JDK 25
+     * warns without it, and a later JDK will refuse.
+     *
+     * @return the native-access requirement
+     */
+    @BuildStep(onlyIf = IsEnabled.class)
+    ModuleEnableNativeAccessBuildItem nativeAccess() {
+        return new ModuleEnableNativeAccessBuildItem(MODULE);
     }
 
     /**

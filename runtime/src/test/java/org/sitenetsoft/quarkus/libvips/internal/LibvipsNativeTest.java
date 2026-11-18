@@ -250,7 +250,7 @@ class LibvipsNativeTest {
         byte[] jpeg = Files.readAllBytes(portraitPath());
         MemorySegment op = LibvipsNative.operationNew("jpegload_buffer");
         try {
-            LibvipsNative.setBlobCopy(op, "buffer", jpeg);
+            LibvipsNative.setBlob(op, "buffer", jpeg);
             LibvipsNative.setBoolean(op, "autorotate", false);
             LibvipsNative.setInt(op, "shrink", 1);
             long failOn = LibvipsNative.argument(op, "fail_on").orElseThrow().valueType();

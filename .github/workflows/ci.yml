@@ -34,7 +34,7 @@ jobs:
           echo "LIBVIPS_EXPECT_AVIF=true" >> "$GITHUB_ENV"
 
       - name: Build
-        run: mvn -B -ntp -T 4 verify
+        run: mvn -B -ntp -T 4 verify -DskipITs=false
 
       - name: Upload test results
         if: always()

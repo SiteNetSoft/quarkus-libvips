@@ -70,7 +70,7 @@ class VipsRuntimeTest {
     @Test
     void settingsAreApplied() {
         VipsRuntime r = VipsRuntime.start(new Settings(Optional.empty(), OptionalInt.of(2), 7, 3 * 1024 * 1024, 2,
-                268402689, 134217728, FailOn.NONE, true, List.of(), List.of()));
+                268402689, 134217728, FailOn.NONE, true, List.of(), List.of(), false));
         assertThat(r.effective()).isEqualTo(new VipsRuntime.Effective(2, 7, 3 * 1024 * 1024, 2));
     }
 

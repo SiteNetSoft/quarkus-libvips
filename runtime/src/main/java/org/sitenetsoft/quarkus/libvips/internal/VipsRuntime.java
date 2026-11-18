@@ -24,7 +24,7 @@ import org.sitenetsoft.quarkus.libvips.Version;
  */
 public final class VipsRuntime {
 
-    /** Minimum libvips version. */
+    /** Minimum libvips version, checked by {@link LibraryLoader} before anything is bound. */
     static final int MIN_MAJOR = 8;
     static final int MIN_MINOR = 15;
 
@@ -56,6 +56,58 @@ public final class VipsRuntime {
     public record Effective(int concurrency, int cacheMaxOperations, long cacheMaxMemory, int cacheMaxFiles) {
     }
 
+    /**
+     * What is still alive, for {@code quarkus.libvips.leak-check}.
+     *
+     * @param openImages images open now (never closed so far)
+     * @param leakedImages images the cleaner released because they were never closed
+     * @param allocations {@code vips_tracked_get_allocs}: pixel buffers libvips still holds
+     * @param bytes {@code vips_tracked_get_mem}
+     * @param files {@code vips_tracked_get_files}: files libvips still has open
+     * @param highWater {@code vips_tracked_get_mem_highwater}: the most tracked memory at any time
+     */
+    public record LeakReport(long openImages, long leakedImages, int allocations, long bytes, int files,
+            long highWater) {
+
+        /** {@return whether nothing is left: every image closed, no tracked memory or file} */
+        public boolean clean() {
+            return openImages == 0 && leakedImages == 0 && allocations == 0 && bytes == 0 && files == 0;
+        }
+
+        /** {@return the report as one log line} */
+        @Override
+        public String toString() {
+            if (clean()) {
+                return "libvips leak check: no leaks; tracked memory high-water mark " + highWater + " bytes";
+            }
+            return "libvips leak check: " + openImages + " image(s) still open, " + leakedImages
+                    + " released by the cleaner (never closed); libvips tracked memory: " + allocations
+                    + " allocation(s), " + bytes + " bytes, " + files + " file(s) open; high-water mark " + highWater
+                    + " bytes; libvips lists the objects still alive on standard error";
+        }
+    }
+
+    /** Whether this class switched libvips's leak checking on (it is never switched off again). */
+    private static volatile boolean libvipsLeakChecking;
+
+    /** {@return whether libvips's leak checking is on, as far as this class switched it} */
+    static boolean libvipsLeakChecking() {
+        return libvipsLeakChecking;
+    }
+
+    /**
+     * Switches libvips's leak checking on, for good: {@code vips_leak_set(TRUE)} only, never {@code FALSE}. libvips
+     * adds an area to its leak list only while checking is on and removes it only if checking is still on when the
+     * area is freed (type.c), so switching it off while an area lives would leave freed memory in the list for the next
+     * report to read. A later start without {@code leak-check} leaves libvips checking until the JVM exits; only the
+     * extension's report follows the setting. Called before {@code vips_init} on the first start, so libvips tracks
+     * from its start.
+     */
+    private static void switchOnLibvipsLeakChecking() {
+        LibvipsNative.leakOn();
+        libvipsLeakChecking = true;
+    }
+
     private final Optional<String> failure;
     private final Version version;
     private final String library;
@@ -76,23 +128,25 @@ public final class VipsRuntime {
     }
 
     /**
-     * Loads libvips, initialises it, checks the version and applies every process-global setting.
+     * Loads libvips (the loader refuses one older than 8.15 before binding it), initialises it and applies every
+     * process-global setting.
      *
      * @param settings what to apply
      * @return the started runtime
-     * @throws LibvipsUnavailableException when libvips cannot be loaded or initialised, or is older than 8.15
+     * @throws LibvipsUnavailableException when libvips cannot be loaded or initialised, is older than 8.15, or lacks a
+     *         function the extension calls
      * @throws IllegalArgumentException when a block-list entry names no operation (nothing has been changed then)
      */
     public static synchronized VipsRuntime start(Settings settings) {
         LibraryLoader.Loaded loaded = LibraryLoader.load(settings.library());
+        if (settings.leakCheck()) {
+            switchOnLibvipsLeakChecking();
+        }
         if (LibvipsNative.init("quarkus-libvips") != 0) {
             throw new LibvipsUnavailableException("vips_init failed: " + LibvipsNative.errorBufferCopy().strip());
         }
+        // the loader refused a library older than MIN_MAJOR.MIN_MINOR before binding it
         Version version = new Version(LibvipsNative.version(0), LibvipsNative.version(1), LibvipsNative.version(2));
-        if (!version.atLeast(MIN_MAJOR, MIN_MINOR)) {
-            throw new LibvipsUnavailableException(
-                    "libvips " + version + " is older than " + MIN_MAJOR + "." + MIN_MINOR);
-        }
         List<String> blocked = resolve(settings.blockedOperations(), "blocked-operations");
         List<String> allowed = resolve(settings.allowedOperations(), "allowed-operations");
         if (allowed.contains(SYSTEM)) {
@@ -268,6 +322,36 @@ public final class VipsRuntime {
         return heifLoadBlocked;
     }
 
+    /** {@return whether {@code quarkus.libvips.leak-check} is on for this runtime} */
+    public boolean leakCheck() {
+        return available() && settings.leakCheck();
+    }
+
+    /**
+     * {@return what is still alive now: images and libvips's tracked memory and files}
+     *
+     * @throws LibvipsUnavailableException when unavailable
+     */
+    public LeakReport leakReport() {
+        checkAvailable();
+        return new LeakReport(openImages.get(), leakedImages.get(), LibvipsNative.trackedGetAllocs(),
+                LibvipsNative.trackedGetMem(), LibvipsNative.trackedGetFiles(), LibvipsNative.trackedGetMemHighwater());
+    }
+
+    /**
+     * Logs {@link #leakReport()} (INFO when clean, WARN otherwise) and has libvips list the objects still alive on
+     * standard error ({@code vips_object_print_all}, which prints nothing when there are none).
+     */
+    private void reportLeaks() {
+        LeakReport report = leakReport();
+        if (report.clean()) {
+            LOG.info(report);
+        } else {
+            LOG.warn(report);
+        }
+        LibvipsNative.objectPrintAll();
+    }
+
     /** {@return the bytes libvips has allocated through its tracked allocator} */
     public long trackedMemory() {
         enter();
@@ -425,7 +509,8 @@ public final class VipsRuntime {
      * calls {@code vips_shutdown}; libvips cannot be initialised again afterwards. Otherwise the operation cache is
      * emptied ({@code vips_cache_set_max(0)}, then the previous value) and libvips stays initialised for the next
      * start in this JVM. {@code vips_cache_drop_all} destroys the cache, so it runs only right before
-     * {@code vips_shutdown}.
+     * {@code vips_shutdown}. With {@code quarkus.libvips.leak-check}, the operation cache emptied, the
+     * {@link #leakReport()} is logged then.
      *
      * @param shutdownLibrary whether {@code vips_shutdown} may run (production only)
      * @return whether {@code vips_shutdown} ran
@@ -450,12 +535,18 @@ public final class VipsRuntime {
             long open = openImages.get();
             if (busy == 0 && open == 0) {
                 LibvipsNative.cacheDropAll();
+                if (settings.leakCheck()) {
+                    reportLeaks();
+                }
                 LibvipsNative.shutdown();
                 return true;
             }
             LOG.debugf("libvips: vips_shutdown skipped (%d call(s) in flight, %d image(s) open)", busy, open);
         }
         emptyCache();
+        if (settings.leakCheck()) {
+            reportLeaks();
+        }
         return false;
     }
 

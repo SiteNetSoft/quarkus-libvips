@@ -26,7 +26,7 @@ import org.sitenetsoft.quarkus.libvips.VipsEnum;
  * {@link Integer}; {@code gdouble} any {@link Number}; {@code gboolean} {@link Boolean}; {@code gchararray}
  * {@link String}; enums a {@link VipsEnum} or a {@link String} nick; flags {@link Integer} bits or a {@link String}
  * nick (such as {@code "icc:exif"}); {@code VipsImage} a {@link NativeImage}; {@code VipsBlob} {@code byte[]}
- * (copied); {@code VipsArrayDouble} {@code double[]}.
+ * (copied once into memory libvips owns); {@code VipsArrayDouble} {@code double[]}.
  * <p>
  * Arguments that libvips reads as file names ({@code input_profile}, {@code output_profile}, {@code export_profile},
  * {@code import_profile}, {@code profile}, {@code fontfile}, {@code filename}; recognised by the name the argument's
@@ -299,7 +299,7 @@ public final class Operation implements AutoCloseable {
                 return null;
             });
         } else if (fundamental == LibvipsNative.G_TYPE_BOXED && LibvipsNative.typeIsA(type, LibvipsNative.blobType())) {
-            LibvipsNative.setBlobCopy(op, name, expect(name, type, value, byte[].class));
+            LibvipsNative.setBlob(op, name, expect(name, type, value, byte[].class));
             holdsCallerData = true;
         } else if (fundamental == LibvipsNative.G_TYPE_BOXED
                 && LibvipsNative.typeIsA(type, LibvipsNative.arrayDoubleType())) {

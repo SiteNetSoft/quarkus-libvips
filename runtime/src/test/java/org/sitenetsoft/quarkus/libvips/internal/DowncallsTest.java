@@ -28,8 +28,10 @@ class DowncallsTest {
             "vips_concurrency_get", "vips_cache_set_max", "vips_cache_set_max_mem", "vips_cache_set_max_files",
             "vips_cache_get_max", "vips_cache_get_size", "vips_cache_get_max_mem", "vips_cache_get_max_files",
             "vips_block_untrusted_set",
-            "vips_operation_block_set", "vips_tracked_get_mem", "vips_error_buffer_copy", "vips_error_clear",
-            "g_free", "g_strfreev", "g_object_ref", "g_object_unref", "g_type_name", "g_type_fundamental",
+            "vips_operation_block_set", "vips_tracked_get_mem", "vips_tracked_get_mem_highwater",
+            "vips_tracked_get_allocs", "vips_tracked_get_files", "vips_leak_set", "vips_object_print_all",
+            "vips_error_buffer_copy", "vips_error_clear", "g_free", "g_try_malloc", "g_strfreev", "g_object_ref",
+            "g_object_unref", "g_type_name", "g_type_fundamental",
             "g_type_is_a", "g_type_from_name", "g_value_init", "g_value_unset", "g_value_set_int", "g_value_set_double",
             "g_value_set_boolean", "g_value_set_enum", "g_value_set_flags", "g_value_set_string",
             "g_value_set_object", "g_value_set_boxed", "g_value_get_int", "g_value_get_double",
@@ -37,7 +39,7 @@ class DowncallsTest {
             "g_object_get_property", "g_param_spec_get_default_value", "g_param_value_validate",
             "g_param_spec_get_name", "g_object_class_find_property",
             "vips_image_get_type",
-            "vips_blob_get_type", "vips_array_double_get_type", "vips_interpretation_get_type", "vips_blob_copy",
+            "vips_blob_get_type", "vips_array_double_get_type", "vips_interpretation_get_type", "vips_blob_new",
             "vips_blob_get", "vips_area_unref", "vips_value_set_array_double", "vips_enum_from_nick",
             "vips_flags_from_nick", "vips_enum_nick", "vips_type_find", "vips_operation_get_type", "vips_operation_new",
             "vips_operation_get_flags", "vips_cache_operation_build", "vips_object_build", "vips_object_unref_outputs",
@@ -75,9 +77,15 @@ class DowncallsTest {
         m.put("vips_block_untrusted_set", FunctionDescriptor.ofVoid(I)); // void (gboolean)
         m.put("vips_operation_block_set", FunctionDescriptor.ofVoid(P, I)); // void (const char *, gboolean)
         m.put("vips_tracked_get_mem", FunctionDescriptor.of(L)); // size_t (void)
+        m.put("vips_tracked_get_mem_highwater", FunctionDescriptor.of(L)); // size_t (void)
+        m.put("vips_tracked_get_allocs", FunctionDescriptor.of(I)); // int (void)
+        m.put("vips_tracked_get_files", FunctionDescriptor.of(I)); // int (void)
+        m.put("vips_leak_set", FunctionDescriptor.ofVoid(I)); // void (gboolean)
+        m.put("vips_object_print_all", FunctionDescriptor.ofVoid()); // void (void)
         m.put("vips_error_buffer_copy", FunctionDescriptor.of(P)); // char * (void)
         m.put("vips_error_clear", FunctionDescriptor.ofVoid());
         m.put("g_free", FunctionDescriptor.ofVoid(P)); // void (gpointer)
+        m.put("g_try_malloc", FunctionDescriptor.of(P, L)); // gpointer (gsize)
         m.put("g_strfreev", FunctionDescriptor.ofVoid(P)); // void (gchar **)
         m.put("g_object_ref", FunctionDescriptor.of(P, P)); // gpointer (gpointer)
         m.put("g_object_unref", FunctionDescriptor.ofVoid(P)); // void (gpointer)
@@ -111,7 +119,7 @@ class DowncallsTest {
         m.put("vips_blob_get_type", FunctionDescriptor.of(L));
         m.put("vips_array_double_get_type", FunctionDescriptor.of(L));
         m.put("vips_interpretation_get_type", FunctionDescriptor.of(L));
-        m.put("vips_blob_copy", FunctionDescriptor.of(P, P, L)); // VipsBlob * (const void *, size_t)
+        m.put("vips_blob_new", FunctionDescriptor.of(P, P, P, L)); // VipsBlob * (VipsCallbackFn, const void *, size_t)
         m.put("vips_blob_get", FunctionDescriptor.of(P, P, P)); // const void * (VipsBlob *, size_t *)
         m.put("vips_area_unref", FunctionDescriptor.ofVoid(P)); // void (VipsArea *)
         m.put("vips_value_set_array_double", FunctionDescriptor.ofVoid(P, P, I)); // (GValue *, const double *, int)
@@ -151,7 +159,7 @@ class DowncallsTest {
 
     @Test
     void everyDescriptorMatchesTheHeaders() {
-        assertThat(EXPECTED).hasSize(85);
+        assertThat(EXPECTED).hasSize(91);
         assertThat(EXPECTED.keySet()).isEqualTo(C_FUNCTIONS);
         EXPECTED.forEach((symbol, fd) -> assertThat(LibvipsNative.DOWNCALLS.get(symbol).descriptor()).as(symbol)
                 .isEqualTo(fd));
@@ -159,7 +167,7 @@ class DowncallsTest {
 
     @Test
     void exactlyTheCApi() {
-        assertThat(C_FUNCTIONS).hasSize(85);
+        assertThat(C_FUNCTIONS).hasSize(91);
         assertThat(LibvipsNative.DOWNCALLS.keySet()).containsExactlyInAnyOrderElementsOf(C_FUNCTIONS);
         LibvipsNative.DOWNCALLS.forEach((k, d) -> assertThat(d.symbol()).isEqualTo(k));
     }
@@ -184,7 +192,8 @@ class DowncallsTest {
 
     @Test
     void knownShapes() {
-        assertThat(shape("vips_blob_copy")).isEqualTo("void*(void*,jlong)");
+        assertThat(shape("vips_blob_new")).isEqualTo("void*(void*,void*,jlong)");
+        assertThat(shape("g_try_malloc")).isEqualTo("void*(jlong)");
         assertThat(shape("vips_object_get_argument")).isEqualTo("jint(void*,void*,void*,void*,void*)");
         assertThat(shape("g_value_init")).isEqualTo("void*(void*,jlong)");
         assertThat(shape("vips_cache_set_max_mem")).isEqualTo("void(jlong)");

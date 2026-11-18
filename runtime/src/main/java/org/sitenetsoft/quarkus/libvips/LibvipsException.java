@@ -43,8 +43,8 @@ public class LibvipsException extends RuntimeException {
      * <li>a C function, {@code vips_foreign_find_load} or {@code vips_foreign_find_load_buffer}, when no loader
      * accepts the input ({@link UnsupportedFormatException});</li>
      * <li>{@code load} or {@code thumbnail} for an empty input ({@link UnsupportedFormatException});</li>
-     * <li>{@link LimitExceededException#MAX_INPUT_SIZE} or {@link LimitExceededException#MAX_INPUT_PIXELS}
-     * ({@link LimitExceededException});</li>
+     * <li>{@link LimitExceededException#MAX_INPUT_SIZE}, {@link LimitExceededException#MAX_INPUT_PIXELS} or
+     * {@link LimitExceededException#OUTPUT_SIZE} ({@link LimitExceededException});</li>
      * <li>{@code libvips} ({@link LibvipsUnavailableException}).</li>
      * </ul>
      */

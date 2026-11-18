@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.sitenetsoft.quarkus.libvips.LibvipsUnavailableException;
+import org.sitenetsoft.quarkus.libvips.Version;
 
 /**
  * Finds and opens the system libvips; the extension never bundles it.
@@ -20,7 +21,9 @@ import org.sitenetsoft.quarkus.libvips.LibvipsUnavailableException;
  * A configured value containing {@code /} is opened as that file; any other configured value is passed unchanged to
  * the dynamic linker. Without one, in order: {@code libvips.so.42} through the dynamic linker's own search, then
  * {@code libvips.so.42} in each {@code java.library.path} entry, each {@code LD_LIBRARY_PATH} entry and the usual
- * system directories. A candidate counts only when every {@link LibvipsNative#DOWNCALLS} symbol resolves.
+ * system directories. A candidate counts when it exports {@code vips_init} and {@code vips_version}; one that is older
+ * than libvips 8.15, or lacks any {@link LibvipsNative#DOWNCALLS} function, fails the load with the version or the
+ * missing functions named, read before anything is bound.
  * <p>
  * The library is opened with {@code dlopen} through {@link SymbolLookup#libraryLookup} in the global arena, never
  * with {@link System#load}, which would tie it to one class loader that a dev-mode restart cannot load it from again.
@@ -67,8 +70,8 @@ public final class LibraryLoader {
      *
      * @param configured a path or name; empty to search
      * @return the library opened
-     * @throws LibvipsUnavailableException listing every candidate tried with its error, or when another libvips is
-     *         already loaded in this process
+     * @throws LibvipsUnavailableException listing every candidate tried with its error, when another libvips is
+     *         already loaded in this process, or when the library found is older than 8.15 or lacks a function
      */
     public static Loaded load(Optional<String> configured) {
         return load(configured, SONAME);
@@ -139,16 +142,46 @@ public final class LibraryLoader {
             throw new LibvipsUnavailableException("libvips could not be loaded: another libvips (" + other
                     + ") is already loaded in this JVM; restart the JVM to use " + library);
         }
-        try {
-            LibvipsNative.bind(lookup);
-        } catch (IllegalArgumentException e) {
-            tried.add(library + " (" + e.getMessage() + ")");
+        Optional<MemorySegment> versionFunction = lookup.find("vips_version");
+        if (versionFunction.isEmpty()) {
+            tried.add(library + " (symbol vips_version not found)");
             return Optional.empty();
         }
+        // a libvips that is too old, or lacks a function, is the library the operator installed: say what is wrong
+        // with it rather than search on
+        checkCompatible(library, LibvipsNative.versionOf(versionFunction.get()), lookup);
+        LibvipsNative.bind(lookup);
         if (recorded == null) {
             System.setProperty(LOADED_PROPERTY, address + " " + library);
         }
         return Optional.of(new Loaded(library, lookup));
+    }
+
+    /**
+     * Refuses a library older than the minimum 8.15, then one that lacks any {@link LibvipsNative#DOWNCALLS} function,
+     * naming every missing one; the version comes first, as an old library lacks newer functions too.
+     *
+     * @param library the path or name it was opened by
+     * @param version its version
+     * @param lookup its symbols
+     * @throws LibvipsUnavailableException {@code libvips 8.10 is older than the minimum 8.15 (...)}, or
+     *         {@code libvips 8.15.0 (...) lacks <functions>, which the extension needs}, in
+     *         {@link LibvipsUnavailableException#detail()}
+     */
+    static void checkCompatible(String library, Version version, SymbolLookup lookup) {
+        if (!version.atLeast(VipsRuntime.MIN_MAJOR, VipsRuntime.MIN_MINOR)) {
+            throw new LibvipsUnavailableException("libvips " + version.major() + "." + version.minor()
+                    + " is older than the minimum " + VipsRuntime.MIN_MAJOR + "." + VipsRuntime.MIN_MINOR + " ("
+                    + version + ", opened as " + library + ")");
+        }
+        List<String> missing = LibvipsNative.DOWNCALLS.keySet().stream()
+                .filter(symbol -> lookup.find(symbol).isEmpty())
+                .sorted()
+                .toList();
+        if (!missing.isEmpty()) {
+            throw new LibvipsUnavailableException("libvips " + version + " (opened as " + library + ") lacks "
+                    + String.join(", ", missing) + ", which the extension needs");
+        }
     }
 
     private static List<String> split(String pathList) {
