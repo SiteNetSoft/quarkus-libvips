@@ -80,8 +80,9 @@ jobs:
           echo "LIBVIPS_EXPECT_AVIF=true" >> "$GITHUB_ENV"
           echo "LIBVIPS_EXPECT_GIF=true" >> "$GITHUB_ENV"
 
-      # the Actions bash shell runs with -o pipefail: tee keeps the build's exit status
+      # with `shell: bash` Actions runs bash with -o pipefail, so tee keeps the build's exit status
       - name: Build and test native image
+        shell: bash
         run: >-
           mvn -B -ntp -pl integration-tests -am verify -Dnative
           -Dquarkus.native.container-build=true
