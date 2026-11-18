@@ -9,12 +9,14 @@ import java.util.Set;
  * are never looked up by suffix, because AVIF has no buffer saver of its own suffix (it is {@code heifsave_buffer}
  * with AV1 compression).
  * <p>
- * The factories keep only the ICC profile and strip the rest of the metadata. That drops the EXIF block and with it
- * the orientation: an image that was not turned upright saves sideways as JPEG, PNG or WebP, so call
+ * The factories {@code jpeg}, {@code png}, {@code webp} and {@code avif} keep only the ICC profile and strip the rest
+ * of the metadata. That drops the EXIF block and with it the orientation: an image that was not turned upright saves
+ * sideways as JPEG, PNG or WebP. GIF has no orientation at all and always saves the pixels as they are. So call
  * {@link Image#autorotate()} (or make a thumbnail, which turns it upright) before saving. AVIF records the rotation in
  * the container ({@code irot}) and keeps it.
  */
-public sealed interface SaveOptions permits SaveOptions.Jpeg, SaveOptions.Png, SaveOptions.Webp, SaveOptions.Avif {
+public sealed interface SaveOptions permits SaveOptions.Jpeg, SaveOptions.Png, SaveOptions.Webp, SaveOptions.Avif,
+        SaveOptions.Gif {
 
     /** {@return the saver operation's nickname, such as {@code webpsave_buffer}} */
     String operation();
@@ -55,6 +57,14 @@ public sealed interface SaveOptions permits SaveOptions.Jpeg, SaveOptions.Png, S
      */
     static Avif avif(int quality) {
         return new Avif(quality, false, 4, Set.of(Keep.ICC));
+    }
+
+    /**
+     * {@return GIF options: effort 7, 8 bits per pixel (up to 256 colours), not interlaced, no metadata kept;
+     * autorotate first, GIF has no orientation}
+     */
+    static Gif gif() {
+        return new Gif(7, 8, false, Set.of());
     }
 
     /**
@@ -200,6 +210,45 @@ public sealed interface SaveOptions permits SaveOptions.Jpeg, SaveOptions.Png, S
         Map<String, Object> arguments() {
             return Map.of("Q", quality, "lossless", lossless, "effort", effort, "keep", Keep.bits(keep),
                     "compression", "av1");
+        }
+    }
+
+    /**
+     * GIF ({@code gifsave_buffer}, libvips built with cgif). The image is quantised to a palette of at most
+     * 2<sup>{@code bitdepth}</sup> colours. libvips does not mark it untrusted, so the default settings do not block
+     * it.
+     *
+     * @param effort quantisation effort, 1 (fastest) to 10
+     * @param bitdepth bits per pixel of the palette, 1 to 8
+     * @param interlace whether to write an interlaced (progressive) GIF
+     * @param keep the metadata to keep
+     */
+    record Gif(int effort, int bitdepth, boolean interlace, Set<Keep> keep) implements SaveOptions {
+
+        /**
+         * Checks the values.
+         *
+         * @throws IllegalArgumentException when {@code effort} or {@code bitdepth} is out of range
+         */
+        public Gif {
+            checkRange("effort", effort, 1, 10);
+            checkRange("bitdepth", bitdepth, 1, 8);
+            keep = Set.copyOf(Objects.requireNonNull(keep, "keep"));
+        }
+
+        @Override
+        public String operation() {
+            return "gifsave_buffer";
+        }
+
+        @Override
+        public String suffix() {
+            return ".gif";
+        }
+
+        /** {@return the saver's arguments by name} */
+        Map<String, Object> arguments() {
+            return Map.of("effort", effort, "bitdepth", bitdepth, "interlace", interlace, "keep", Keep.bits(keep));
         }
     }
 

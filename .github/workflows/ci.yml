@@ -32,6 +32,7 @@ jobs:
           dpkg -l | awk '/libvips42|libheif/ { print $2, $3 }'
           echo "QUARKUS_LIBVIPS_LIBRARY=$lib" >> "$GITHUB_ENV"
           echo "LIBVIPS_EXPECT_AVIF=true" >> "$GITHUB_ENV"
+          echo "LIBVIPS_EXPECT_GIF=true" >> "$GITHUB_ENV"
 
       - name: Build
         run: mvn -B -ntp -T 4 verify -DskipITs=false
@@ -77,6 +78,7 @@ jobs:
           dpkg -l | awk '/libvips42|libheif/ { print $2, $3 }'
           echo "QUARKUS_LIBVIPS_LIBRARY=$lib" >> "$GITHUB_ENV"
           echo "LIBVIPS_EXPECT_AVIF=true" >> "$GITHUB_ENV"
+          echo "LIBVIPS_EXPECT_GIF=true" >> "$GITHUB_ENV"
 
       # the Actions bash shell runs with -o pipefail: tee keeps the build's exit status
       - name: Build and test native image

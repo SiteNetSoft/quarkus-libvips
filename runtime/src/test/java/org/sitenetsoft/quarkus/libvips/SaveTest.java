@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -118,6 +119,61 @@ class SaveTest {
     }
 
     @Test
+    void gifOptionsNameLibvipsArguments() {
+        assertThat(SaveOptions.gif().operation()).isEqualTo("gifsave_buffer");
+        assertThat(SaveOptions.gif().suffix()).isEqualTo(".gif");
+        assertThat(SaveOptions.gif().arguments()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("effort", 7, "bitdepth", 8, "interlace", false, "keep", 0));
+        assertThat(new SaveOptions.Gif(1, 1, true, Set.of(Keep.ICC)).arguments()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("effort", 1, "bitdepth", 1, "interlace", true, "keep", 8));
+    }
+
+    @Test
+    void gifRangesAreValidated() {
+        assertThatThrownBy(() -> new SaveOptions.Gif(0, 8, false, Set.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("effort must be 1 to 10, got 0");
+        assertThatThrownBy(() -> new SaveOptions.Gif(11, 8, false, Set.of()))
+                .hasMessage("effort must be 1 to 10, got 11");
+        assertThatThrownBy(() -> new SaveOptions.Gif(7, 0, false, Set.of()))
+                .hasMessage("bitdepth must be 1 to 8, got 0");
+        assertThatThrownBy(() -> new SaveOptions.Gif(7, 9, false, Set.of()))
+                .hasMessage("bitdepth must be 1 to 8, got 9");
+        assertThat(new SaveOptions.Gif(10, 8, false, Set.of()).effort()).isEqualTo(10);
+        assertThatThrownBy(() -> new SaveOptions.Gif(7, 8, false, null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void aGifRoundTripKeepsItsSize() {
+        assumeTrue(expectGif() || libvips.hasOperation("gifsave_buffer"),
+                "SKIPPED (libvips lacks gifsave_buffer): built without cgif");
+        try (Image i = libvips.load(TestLibvips.portrait()); Image small = i.crop(0, 0, 16, 9)) {
+            byte[] gif = small.save(SaveOptions.gif());
+            assertThat(new String(gif, 0, 4, US_ASCII)).isEqualTo("GIF8");
+            try (Image back = libvips.load(gif)) {
+                assertThat(back.width()).isEqualTo(16);
+                assertThat(back.height()).isEqualTo(9);
+                assertThat(back.loader()).isEqualTo("gifload_buffer");
+            }
+        }
+    }
+
+    @Test
+    void gifArgumentsReachTheSaver() {
+        assumeTrue(expectGif() || libvips.hasOperation("gifsave_buffer"),
+                "SKIPPED (libvips lacks gifsave_buffer): built without cgif");
+        try (Image i = libvips.load(TestLibvips.portrait()); Image small = i.crop(0, 0, 64, 48)) {
+            byte[] plain = small.save(SaveOptions.gif());
+            byte[] interlaced = small.save(new SaveOptions.Gif(7, 8, true, Set.of()));
+            byte[] twoColours = small.save(new SaveOptions.Gif(7, 1, false, Set.of()));
+            // the colour table holds the colours used (rounded up to a power of two), at most 2^bitdepth
+            assertThat(gifFirstImage(plain)[0]).isZero();
+            assertThat(gifFirstImage(plain)[1]).isGreaterThan(1);
+            assertThat(gifFirstImage(interlaced)[0]).isOne();
+            assertThat(gifFirstImage(twoColours)).containsExactly(0, 1);
+        }
+    }
+
+    @Test
     void formatDiscovery() {
         assertThat(libvips.saverFor(".webp")).isPresent();
         assertThat(libvips.saverFor(".nope")).isEmpty();
@@ -138,6 +194,38 @@ class SaveTest {
             at += 2 + (((jpg[at + 2] & 0xff) << 8) | (jpg[at + 3] & 0xff));
         }
         throw new AssertionError("no start-of-frame marker");
+    }
+
+    /**
+     * {@return the first image of a GIF file as {interlaced (0 or 1), colour table bits (1 to 8)}}; the colour table is
+     * the image's local one when it has one, else the global one
+     */
+    private static int[] gifFirstImage(byte[] gif) {
+        int screenFlags = gif[10] & 0xff;
+        int globalBits = (screenFlags & 0x80) != 0 ? (screenFlags & 0x07) + 1 : 0;
+        int at = 13 + (globalBits == 0 ? 0 : 3 << globalBits);
+        while (at < gif.length) {
+            int block = gif[at] & 0xff;
+            if (block == 0x2c) { // image descriptor
+                int flags = gif[at + 9] & 0xff;
+                int bits = (flags & 0x80) != 0 ? (flags & 0x07) + 1 : globalBits;
+                return new int[] { (flags & 0x40) != 0 ? 1 : 0, bits };
+            }
+            if (block != 0x21) { // extension
+                break;
+            }
+            at += 2;
+            while ((gif[at] & 0xff) != 0) { // data sub-blocks
+                at += 1 + (gif[at] & 0xff);
+            }
+            at++;
+        }
+        throw new AssertionError("no image descriptor");
+    }
+
+    /** {@return whether this run must save GIF (CI sets it): then a missing saver fails instead of skipping} */
+    private static boolean expectGif() {
+        return "true".equals(System.getenv("LIBVIPS_EXPECT_GIF"));
     }
 
     /** {@return the RIFF chunk names of a WebP file, in order} */

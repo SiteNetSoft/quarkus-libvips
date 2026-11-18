@@ -43,7 +43,7 @@ public class ImageResource {
      * @param body the encoded image
      * @param width the box width
      * @param height the box height
-     * @param format {@code webp}, {@code jpeg}, {@code avif} or {@code png}
+     * @param format {@code webp}, {@code jpeg}, {@code avif}, {@code png} or {@code gif}
      * @return the encoded thumbnail, typed {@code image/<format>}
      */
     @POST
@@ -56,7 +56,8 @@ public class ImageResource {
             case "jpeg" -> SaveOptions.jpeg(85);
             case "avif" -> SaveOptions.avif(50);
             case "png" -> SaveOptions.png();
-            case null, default -> throw new IllegalArgumentException("format must be webp, jpeg, avif or png");
+            case "gif" -> SaveOptions.gif();
+            case null, default -> throw new IllegalArgumentException("format must be webp, jpeg, avif, png or gif");
         };
         try (Image thumbnail = libvips.thumbnail(body, width, ThumbnailOptions.box(height, Interesting.CENTRE))) {
             return Response.ok(thumbnail.save(options), "image/" + format).build();

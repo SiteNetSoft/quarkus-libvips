@@ -335,6 +335,7 @@ public final class Image implements AutoCloseable {
             case SaveOptions.Png o -> o.arguments();
             case SaveOptions.Webp o -> o.arguments();
             case SaveOptions.Avif o -> o.arguments();
+            case SaveOptions.Gif o -> o.arguments();
         };
         VipsRuntime runtime = libvips.runtime();
         runtime.enter();

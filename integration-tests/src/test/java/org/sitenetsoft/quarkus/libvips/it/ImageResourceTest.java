@@ -51,6 +51,15 @@ class ImageResourceTest {
     }
 
     @Test
+    void thumbnailAsGif() { // not guarded: CI's libvips has gifsave, so a missing saver fails here instead of skipping
+
+        byte[] out = thumbnail("gif", "image/gif");
+        assertThat(new String(out, 0, 4, US_ASCII)).isEqualTo("GIF8");
+        given().contentType("application/octet-stream").body(out).post("/images/info").then().statusCode(200)
+                .body("width", is(200)).body("height", is(200)).body("loader", is("gifload_buffer"));
+    }
+
+    @Test
     void info() {
         given().contentType("application/octet-stream").body(portrait()).post("/images/info").then().statusCode(200)
                 .body("width", is(400)).body("height", is(300)).body("orientation", is(6))
