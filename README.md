@@ -2,7 +2,7 @@
 
 Quarkus extension by SiteNetSoft for image processing with [libvips](https://www.libvips.org/): load uploads, read
 their header, EXIF and ICC profile, turn them upright, make thumbnails, resize, crop, convert colour profiles, and save
-to JPEG, PNG, WebP or AVIF. It calls the system's libvips through the Java Foreign Function & Memory API
+to JPEG, PNG, WebP, AVIF or GIF. It calls the system's libvips through the Java Foreign Function & Memory API
 (`java.lang.foreign`) and works in JVM mode, dev mode and native image.
 
 Status: experimental. Nothing is published to Maven Central yet; build it with `mvn install`.
@@ -20,7 +20,9 @@ it.
 | RHEL, Rocky, Alma | `dnf install vips` from EPEL |
 | macOS | untested |
 
-To save AVIF on Debian or Ubuntu, also install libheif's AV1 encoder: `libheif-plugin-aomenc`.
+To save AVIF on Debian or Ubuntu, also install libheif's AV1 encoder: `libheif-plugin-aomenc`. To read HEIC (iPhone
+photos), install `libheif-plugin-libde265`: without it, Ubuntu 24.04 decodes HEIC as an all-black image, with no
+error.
 
 ## Quick start
 

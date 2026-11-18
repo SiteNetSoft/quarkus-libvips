@@ -40,16 +40,30 @@ at startup like a missing one. The startup INFO line names the version and the l
 == HEIF and AVIF codecs
 
 libvips reads and writes HEIF and AVIF through libheif, whose codecs are separate packages on Debian and Ubuntu.
-Decoding (`libheif-plugin-dav1d` or `libheif-plugin-aomdec` for AVIF, `libheif-plugin-libde265` for HEIC) usually comes
-with `libheif1`; the AV1 *encoder* `libheif-plugin-aomenc` is only recommended, so an image built with
-`--no-install-recommends` lacks it. Without an encoder `Image.save(SaveOptions.avif(…))` fails with a
-`LibvipsException` naming `heifsave_buffer` (the saver exists; its encoder does not). Install it explicitly when you
-save AVIF:
+AVIF decoding (`libheif-plugin-dav1d` or `libheif-plugin-aomdec`) comes with `libheif1`; HEIC decoding
+(`libheif-plugin-libde265`) may not (see the warning below). The AV1 *encoder* `libheif-plugin-aomenc` is only
+recommended, so an image built with `--no-install-recommends` lacks it. Without an encoder
+`Image.save(SaveOptions.avif(…))` fails with a `LibvipsException` naming `heifsave_buffer` (the saver exists; its
+encoder does not). Install it explicitly when you save AVIF:
 
 [source,bash]
 ----
 apt install libvips42t64 libheif-plugin-aomenc
 ----
+
+[WARNING]
+.HEIC needs `libheif-plugin-libde265`
+====
+On Ubuntu 24.04, `libheif1` only _suggests_ the HEVC decoder `libheif-plugin-libde265`, so a default install (with
+or without recommends) lacks it. libvips still reads a HEIC file's header and size, but decodes its pixels as an
+*all-black image, with no error* (even with `fail-on` set to `error` or `warning`): thumbnails and saved copies come
+out black. Install the decoder wherever HEIC uploads are read, and `libheif-plugin-aomenc` wherever AVIF is saved:
+
+[source,bash]
+----
+apt install libvips42t64 libheif-plugin-libde265 libheif-plugin-aomenc
+----
+====
 
 Whether HEIF/AVIF *reading* is allowed by default depends on how libvips marks it: see
 xref:security.adoc#heif-and-avif-reading[HEIF and AVIF reading].
@@ -110,7 +124,7 @@ FROM eclipse-temurin:25-jre AS jre
 
 FROM debian:trixie-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libvips42t64 libheif-plugin-aomenc libjemalloc2 \
+ && apt-get install -y --no-install-recommends libvips42t64 libheif-plugin-libde265 libheif-plugin-aomenc libjemalloc2 \
  && rm -rf /var/lib/apt/lists/*
 # see "Memory allocator" below; on arm64 the path is /usr/lib/aarch64-linux-gnu/libjemalloc.so.2
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2

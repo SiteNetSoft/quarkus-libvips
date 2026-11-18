@@ -3,7 +3,7 @@ include::includes/attributes.adoc[]
 
 Image processing for Quarkus with https://www.libvips.org/[libvips]: load JPEG, PNG, WebP, GIF, TIFF and HEIF/AVIF
 uploads, read their header, EXIF and ICC profile, turn them upright, make thumbnails, resize, crop and convert colour
-profiles, and save to JPEG, PNG, WebP or AVIF. The extension calls the system's libvips through the Java Foreign
+profiles, and save to JPEG, PNG, WebP, AVIF or GIF. The extension calls the system's libvips through the Java Foreign
 Function & Memory API (`java.lang.foreign`); it works in JVM mode, dev mode and native image. It is built for
 untrusted uploads: input size and pixel limits, and the libvips loaders that are not hardened against hostile input
 blocked by default.

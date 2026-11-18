@@ -66,11 +66,10 @@ A file is opened by its exact name: a trailing `[...]` is never read as libvips 
 white space or are longer than 4093 bytes are refused, and so is anything that is not a regular file (a FIFO, device
 or directory). Every load goes through the limits and blocked operations of xref:security.adoc[Security and limits].
 
-Input arrays are copied to native memory twice: into a per-call buffer, freed when the call returns, then into a
-blob libvips owns. That second copy of the whole input stays in native memory for as long as the `Image` (or an image
-derived from it) refers to it, and, if you turn the operation cache on, for as long as cached operations do (see
-xref:configuration.adoc#operation-cache[The operation cache]). The extension's own loads are never cached. Format
-detection copies at most the first 64 KiB.
+Input arrays are copied to native memory once, into a blob libvips owns. That copy of the whole input stays in
+native memory for as long as the `Image` (or an image derived from it) refers to it, and, if you turn the operation
+cache on, for as long as cached operations do (see xref:configuration.adoc#operation-cache[The operation cache]).
+The extension's own loads are never cached. Format detection copies at most the first 64 KiB.
 
 === Thumbnails
 
@@ -123,18 +122,35 @@ byte[] jpeg = upright.save(SaveOptions.jpeg(85));
 byte[] png = upright.save(SaveOptions.png());
 byte[] webp = upright.save(new SaveOptions.Webp(90, true, 6, Set.of(Keep.ICC, Keep.EXIF)));
 byte[] avif = upright.save(SaveOptions.avif(50));
+byte[] gif = upright.save(SaveOptions.gif());
 ----
 
-Each `SaveOptions` record names its libvips saver (`jpegsave_buffer`, `pngsave_buffer`, `webpsave_buffer`, and
-`heifsave_buffer` with AV1 compression for AVIF); savers are never looked up by suffix.
+Each `SaveOptions` record names its libvips saver (`jpegsave_buffer`, `pngsave_buffer`, `webpsave_buffer`,
+`heifsave_buffer` with AV1 compression for AVIF, and `gifsave_buffer` for GIF); savers are never looked up by suffix.
+
+[cols="1,2,3"]
+|===
+|Record |Saver |Settings (factory values)
+
+|`Jpeg` |`jpegsave_buffer` |quality 1–100, interlace (progressive), keep (`jpeg(q)`: not interlaced, ICC)
+|`Png` |`pngsave_buffer` |compression 0–9, interlace (Adam7), keep (`png()`: 6, not interlaced, ICC)
+|`Webp` |`webpsave_buffer` |quality 1–100, lossless, effort 0–6, keep (`webp(q)`: lossy, 4, ICC)
+|`Avif` |`heifsave_buffer` |quality 1–100, lossless, effort 0–9, keep (`avif(q)`: lossy, 4, ICC)
+|`Gif` |`gifsave_buffer` |effort 1–10, bitdepth 1–8, interlace, keep (`gif()`: 7, 8 bits, not interlaced, nothing)
+|===
+
+GIF needs libvips built with cgif (Ubuntu 24.04's `libvips42t64` is; `hasOperation("gifsave_buffer")` tells);
+`bitdepth` caps the palette at 2^bitdepth^ colours (8: 256). A default load (and a thumbnail) reads only the first
+page, so an animated GIF is saved as its first frame; load it with `pages` = `-1` to keep every frame.
 
 [IMPORTANT]
 .Turn images upright before saving
 ====
 The factories (`jpeg`, `png`, `webp`, `avif`) keep only the ICC profile (`Set.of(Keep.ICC)`) and strip the rest of
 the metadata. That drops the EXIF block, and with it the orientation: a photo that was not turned upright saves
-sideways as JPEG, PNG or WebP. Call `autorotate()`, or make a thumbnail (which turns it upright), before saving. AVIF
-records the rotation in its container (`irot`) and keeps it.
+sideways as JPEG, PNG or WebP. GIF has no orientation at all, so it always saves the pixels as they are. Call
+`autorotate()`, or make a thumbnail (which turns it upright), before saving. AVIF records the rotation in its
+container (`irot`) and keeps it.
 ====
 
 `Keep` mirrors libvips's `VipsForeignKeep` flags `EXIF`, `XMP`, `IPTC`, `ICC` and `OTHER`; an empty set keeps nothing.

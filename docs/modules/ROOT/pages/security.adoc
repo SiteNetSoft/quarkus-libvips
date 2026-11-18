@@ -21,7 +21,7 @@ Ubuntu packages of libvips 8.15.1 (Ubuntu 24.04) and 8.18.7 it is:
 * savers: JPEG XL, FITS and ImageMagick, and from 8.18 also JPEG 2000.
 
 Builds with other optional libraries may add theirs. `vips -l | grep untrusted` lists the marked operations of the
-installed libvips. JPEG, PNG, WebP, GIF and TIFF stay loadable, and the savers `Image.save` uses (JPEG, PNG, WebP, HEIF/AVIF) are not
+installed libvips. JPEG, PNG, WebP, GIF and TIFF stay loadable, and the savers `Image.save` uses (JPEG, PNG, WebP, HEIF/AVIF, GIF) are not
 marked.
 
 [[a-blocked-format-is-no-loader]]
