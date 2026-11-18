@@ -5,6 +5,7 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -130,7 +131,8 @@ class ImageResourceTest {
     @Test
     void readiness() {
         given().get("/q/health/ready").then().statusCode(200)
-                .body("checks.find { it.name == 'libvips' }.status", is("UP"));
+                .body("checks.find { it.name == 'libvips' }.status", is("UP"))
+                .body("checks.find { it.name == 'libvips' }.data.library", not(containsString("/")));
     }
 
     private static byte[] thumbnail(String format, String contentType) {

@@ -178,7 +178,8 @@ and log the rest. An `IllegalArgumentException` message can repeat the caller's 
 == Health check
 
 With `quarkus-smallrye-health` in the application, the extension registers a readiness check named `libvips`. It runs
-no image operation: it reports the version, the library, the effective settings (`concurrency`, `cache.max-operations`,
+no image operation: it reports the version, the library's file name (`libvips.so.42`, never its directory, even when
+`quarkus.libvips.library` is a path), the effective settings (`concurrency`, `cache.max-operations`,
 `cache.max-memory`, `cache.max-files`, `block-untrusted`, `heif-load-blocked`) and the counters `open-images` and
 `tracked-memory`, with `available=true`.
 
@@ -187,6 +188,6 @@ no image operation: it reports the version, the library, the effective settings 
   DOWN would take a working application out of rotation.
 * `quarkus.libvips.health.enabled` is a *build-time* switch: set it to `false` before building to leave the check out.
   `quarkus.smallrye-health.extensions.enabled=false` also removes it, with every other extension's check.
-* Health data is public by default. The version, library path and block settings tell an attacker which parsers run.
-  Serve health on the management interface (`quarkus.management.enabled=true`, a port that is not exposed publicly),
+* Health data is public by default. The version, library file name and block settings tell an attacker which parsers
+  run. Serve health on the management interface (`quarkus.management.enabled=true`, a port that is not exposed publicly),
   or disable the check.

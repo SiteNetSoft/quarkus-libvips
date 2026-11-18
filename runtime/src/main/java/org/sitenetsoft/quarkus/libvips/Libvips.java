@@ -49,7 +49,8 @@ public class Libvips {
      * @param available whether libvips can be used
      * @param error why it cannot, when it cannot; it may name library paths, so log it but never return it to clients
      * @param version the libvips version, when available
-     * @param library the library path or name, when available
+     * @param library the library path or name it was opened by, when available; it may name a host path, so log it
+     *        but never return it to clients (the health check reports only its file name)
      * @param concurrency worker threads per pipeline ({@code 0} when unavailable)
      * @param cacheMaxOperations operation cache entries
      * @param cacheMaxMemory operation cache memory, bytes
@@ -89,7 +90,7 @@ public class Libvips {
     }
 
     /**
-     * {@return the path or name libvips was opened by}
+     * {@return the path or name libvips was opened by} It may name a host path: log it, never return it to clients.
      *
      * @throws LibvipsUnavailableException when libvips is unavailable
      */

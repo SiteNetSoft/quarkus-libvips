@@ -202,7 +202,8 @@ boolean blocked = libvips.isBlocked("ppmload");
 * `hasOperation` tells whether this libvips was built with an optional format; an encoder plugin missing from libheif
   does not show there.
 * `status()` returns the version, library, effective settings and counters (what the health check reports); it never
-  throws.
+  throws. Its `library()` is the value libvips was opened by and may be a host path: the health check shows only its
+  file name.
 
 [[threads]]
 == Threads

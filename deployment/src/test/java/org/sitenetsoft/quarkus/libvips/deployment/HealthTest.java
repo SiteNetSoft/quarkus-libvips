@@ -38,7 +38,7 @@ class HealthTest {
                 .body(CHECK + ".status", is("UP"))
                 .body(CHECK + ".data.version", startsWith("8."))
                 .body(CHECK + ".data.version", is(status.version().orElseThrow().toString()))
-                .body(CHECK + ".data.library", is(status.library().orElseThrow()))
+                .body(CHECK + ".data.library", is(fileName(status.library().orElseThrow())))
                 .body(CHECK + ".data.concurrency", is(2))
                 .body(CHECK + ".data.'cache.max-operations'", is(7))
                 .body(CHECK + ".data.'cache.max-memory'", is(3145728))
@@ -47,5 +47,9 @@ class HealthTest {
                 .body(CHECK + ".data.'heif-load-blocked'", is(status.heifLoadBlocked()))
                 .body(CHECK + ".data.'open-images'", is(0))
                 .body(CHECK + ".data.'tracked-memory'", greaterThanOrEqualTo(0));
+    }
+
+    private static String fileName(String library) {
+        return library.substring(library.lastIndexOf('/') + 1);
     }
 }
