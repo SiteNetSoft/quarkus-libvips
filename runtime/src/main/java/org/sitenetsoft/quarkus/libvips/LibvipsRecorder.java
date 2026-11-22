@@ -84,27 +84,34 @@ public class LibvipsRecorder {
      * {@return the configuration in plain values} Memory sizes become bytes; {@code 0} stays "no limit".
      *
      * @param cfg the run-time configuration
-     * @param mode the launch mode ({@code leak-check} is ignored in production)
+     * @param mode the launch mode ({@code leak-check} is ignored in production unless allowed there)
      */
     static Settings settings(LibvipsConfig cfg, LaunchMode mode) {
         return new Settings(cfg.library(), cfg.concurrency(), cfg.cache().maxOperations(),
                 cfg.cache().maxMemory().asLongValue(), cfg.cache().maxFiles(), cfg.limits().maxInputPixels(),
                 cfg.limits().maxInputSize().asLongValue(), cfg.failOn(), cfg.security().blockUntrusted(),
                 cfg.security().blockedOperations().orElse(List.of()),
-                cfg.security().allowedOperations().orElse(List.of()), leakCheck(cfg.leakCheck(), mode));
+                cfg.security().allowedOperations().orElse(List.of()), leakCheck(cfg.leakCheck(), cfg.leakCheckInProduction(), mode));
     }
 
     /**
-     * {@return whether leak checking runs} Only in dev and test mode: in production ({@link LaunchMode#NORMAL}) a
-     * configured {@code quarkus.libvips.leak-check} is ignored with a warning rather than failing the start, as it is a
-     * diagnostic.
+     * {@return whether leak checking runs} In dev and test mode whenever it is configured; in production
+     * ({@link LaunchMode#NORMAL}) only with {@code quarkus.libvips.leak-check-in-production}, for tests of the
+     * packaged application. Otherwise a configured {@code quarkus.libvips.leak-check} is ignored there with a warning
+     * rather than failing the start, as it is a diagnostic.
      *
      * @param configured {@code quarkus.libvips.leak-check}
+     * @param inProduction {@code quarkus.libvips.leak-check-in-production}
      * @param mode the launch mode
      */
-    static boolean leakCheck(boolean configured, LaunchMode mode) {
+    static boolean leakCheck(boolean configured, boolean inProduction, LaunchMode mode) {
         if (configured && mode == LaunchMode.NORMAL) {
-            LOG.warn("quarkus.libvips.leak-check is for dev and test mode; it is ignored in production");
+            if (inProduction) {
+                LOG.warn("quarkus.libvips.leak-check is on in production (quarkus.libvips.leak-check-in-production)");
+                return true;
+            }
+            LOG.warn("quarkus.libvips.leak-check is for dev and test mode; it is ignored in production"
+                    + " unless quarkus.libvips.leak-check-in-production is set");
             return false;
         }
         return configured;

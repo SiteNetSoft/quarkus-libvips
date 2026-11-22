@@ -79,7 +79,8 @@ public interface LibvipsConfig {
      * Leak checking, for development and tests: turns on libvips's own checks ({@code vips_leak_set}) and, when the
      * application stops, logs what is still alive: images never closed, and the pixel memory and files libvips still
      * tracks (WARN when anything is left, INFO otherwise); libvips lists any objects still alive on standard error.
-     * Ignored, with a warning, in production (the packaged application), where the checks only cost time. Once on,
+     * Ignored, with a warning, in production (the packaged application), where the checks only cost time, unless
+     * {@code quarkus.libvips.leak-check-in-production} is set. Once on,
      * libvips keeps checking until the JVM exits, even after a restart without it (only the report follows the
      * setting), so set it for a whole dev session or test run.
      *
@@ -87,6 +88,15 @@ public interface LibvipsConfig {
      */
     @WithDefault("false")
     boolean leakCheck();
+
+    /**
+     * Honour {@code quarkus.libvips.leak-check} in production too, for tests that run the packaged application (a
+     * {@code @QuarkusIntegrationTest} or a native image), which start in production mode. Not for deployments.
+     *
+     * @return true to let the leak check run in production
+     */
+    @WithDefault("false")
+    boolean leakCheckInProduction();
 
     /** The libvips operation cache. */
     interface Cache {

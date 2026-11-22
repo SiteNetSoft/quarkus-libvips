@@ -315,7 +315,9 @@ leak checks (`vips_leak_set`), and when the application stops the extension logs
 `libvips leak check: no leaks; ...` when everything was released, else a WARN with the images still open, the images
 the cleaner released because they were never closed, and the pixel memory and files libvips still tracks. libvips
 lists any of its objects still alive on standard error. In production the key is ignored with a warning: the checks
-cost time and the report is a diagnostic.
+cost time and the report is a diagnostic. Tests of the packaged application (`@QuarkusIntegrationTest`, a native
+image) start in production mode; to check them, also set `quarkus.libvips.leak-check-in-production=true` for those
+runs only.
 
 Once on, libvips keeps checking until the JVM exits, even after a dev-mode restart or a later test application
 without the key: libvips cannot switch its own checks off safely while images from the checked period may still be

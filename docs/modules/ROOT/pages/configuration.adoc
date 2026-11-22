@@ -87,8 +87,14 @@ processor).
 |run
 |`false`
 |Dev and test mode only: libvips's leak checks on, and a leak report logged when the application stops (see
-xref:usage.adoc#leak-check[Leak check]). Ignored, with a warning, in production. Once on, libvips keeps checking
-until the JVM exits.
+xref:usage.adoc#leak-check[Leak check]). Ignored, with a warning, in production unless the next key is set. Once
+on, libvips keeps checking until the JVM exits.
+
+|`quarkus.libvips.leak-check-in-production`
+|run
+|`false`
+|Honour `quarkus.libvips.leak-check` in production too, for tests of the packaged application
+(`@QuarkusIntegrationTest`, native images), which start in production mode. Not for deployments.
 |===
 
 libvips's settings are process-wide: every application start sets all of them, so in a JVM that starts several
